@@ -14,9 +14,7 @@ A Streamlit-based analysis tool for **Terra Invicta** that helps you reason abou
 
 ## Live app
 
-If you’re running this on Streamlit Community Cloud, put your URL here:
-
-https://<your-username>-ti-propulsion-power-planner.streamlit.app
+https://ti-propulsion-power-planner.streamlit.app
 
 ---
 
