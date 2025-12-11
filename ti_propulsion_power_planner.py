@@ -1740,14 +1740,13 @@ def main():
         )
         st.session_state["scroll_to_top"] = False
 
-    # Make the sidebar start at a wide default width
+    # Make the sidebar start at a wide default width, but still allow user expansion
     st.markdown(
         """
         <style>
-        /* Force a wide default sidebar width; tweak px value if desired */
+        /* Set a wide minimum width so it starts large, but don't cap max-width */
         [data-testid="stSidebar"] {
-            min-width: 450px;
-            max-width: 450px;
+            min-width: 600px;
         }
         </style>
         """,
