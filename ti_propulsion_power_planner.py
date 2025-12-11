@@ -1740,6 +1740,20 @@ def main():
         )
         st.session_state["scroll_to_top"] = False
 
+    # Make the sidebar start at a wide default width
+    st.markdown(
+        """
+        <style>
+        /* Force a wide default sidebar width; tweak px value if desired */
+        [data-testid="stSidebar"] {
+            min-width: 450px;
+            max-width: 450px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.title("Terra Invicta Propulsion and Power Planner")
 
     st.markdown(
