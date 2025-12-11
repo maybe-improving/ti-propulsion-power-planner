@@ -262,24 +262,6 @@ At the bottom:
 
 ---
 
-## Deployment to Streamlit Community Cloud
-
-High-level steps:
-
-1. Push the repo to GitHub (public).
-2. Ensure the repo contains:
-   - `ti_propulsion_power_planner.py`  
-   - `TIDriveTemplate.html`  
-   - `TIPowerPlantTemplate.html`  
-   - `requirements.txt`  
-   - (Optional) `.streamlit/config.toml` for theme
-3. Go to https://share.streamlit.io, sign in with GitHub.
-4. Click **New app**, choose:
-   - Repo: this project  
-   - Branch: `main`  
-   - Main file: `ti_propulsion_power_planner.py`
-5. Deploy.
-
 The app doesn’t write to server disk and doesn’t call external APIs, so it’s well-suited for Streamlit Cloud.
 
 ---
