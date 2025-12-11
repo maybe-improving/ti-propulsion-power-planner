@@ -1862,73 +1862,80 @@ def main():
     )
     if uploaded_profile is not None:
         try:
-            # 1) Compute an upper bound on profile size:
-            #    "maximal" profile = all drives + all reactors + extreme values
-            max_profile_for_limit = {
-                "unlocked_drive_families": all_drive_families,
-                "unlocked_pp": all_pp_names,
-                "resource_abundance": {
-                    "water": True,
-                    "volatiles": True,
-                    "metals": True,
-                    "nobleMetals": True,
-                    "fissiles": True,
-                    "antimatter": True,
-                    "exotics": True,
-                },
-                "care_backup": True,
-                "care_crew": True,
-                "ref_payload_tons": 300000.0,
-                "ref_propellant_tons": 300000.0,
-                "fuel_weights": {
-                    "water": 10.0,
-                    "volatiles": 10.0,
-                    "metals": 10.0,
-                    "nobleMetals": 10.0,
-                    "fissiles": 20.0,
-                    "antimatter": 50.0,
-                    "exotics": 50.0,
-                },
-                "ignore_intraclass": True,
-            }
-            max_profile_json = json.dumps(max_profile_for_limit, indent=2)
-            max_profile_bytes = len(max_profile_json.encode("utf-8"))
-            size_limit_bytes = max_profile_bytes + 1024  # +1 kB safety margin
-
-            # 2) Check size hint from Streamlit (if available)
-            size_hint = getattr(uploaded_profile, "size", None)
-            if size_hint is not None and size_hint > size_limit_bytes:
-                st.sidebar.error(
-                    f"Profile file is too large (> {size_limit_bytes} bytes). "
-                    "This does not look like a valid profile."
-                )
+            # Read the file contents in a way that works across reruns
+            file_bytes = uploaded_profile.getvalue()
+            if not file_bytes:
+                # Nothing to do
+                pass
             else:
-                # 3) Read the raw bytes and enforce size again
-                raw_bytes = uploaded_profile.read()
-                if len(raw_bytes) > size_limit_bytes:
-                    st.sidebar.error(
-                        f"Profile file is too large (> {size_limit_bytes} bytes). "
-                        "This does not look like a valid profile."
-                    )
+                # Hash the content so we only apply each unique file once
+                file_hash = hashlib.md5(file_bytes).hexdigest()
+                last_hash = st.session_state.get("last_uploaded_profile_hash")
+
+                # If we've already applied this exact file, skip re-applying it
+                if last_hash == file_hash:
+                    # Profile already applied; let the user move sliders freely
+                    pass
                 else:
-                    # 4) Parse JSON
-                    try:
-                        profile_data = json.loads(raw_bytes.decode("utf-8"))
-                    except Exception as e:
-                        st.sidebar.error(f"Invalid JSON profile: {e}")
+                    # 1) Compute an upper bound on profile size:
+                    #    "maximal" profile = all drives + all reactors + extreme values
+                    max_profile_for_limit = {
+                        "unlocked_drive_families": all_drive_families,
+                        "unlocked_pp": all_pp_names,
+                        "resource_abundance": {
+                            "water": True,
+                            "volatiles": True,
+                            "metals": True,
+                            "nobleMetals": True,
+                            "fissiles": True,
+                            "antimatter": True,
+                            "exotics": True,
+                        },
+                        "care_backup": True,
+                        "care_crew": True,
+                        "ref_payload_tons": 300000.0,
+                        "ref_propellant_tons": 300000.0,
+                        "fuel_weights": {
+                            "water": 10.0,
+                            "volatiles": 10.0,
+                            "metals": 10.0,
+                            "nobleMetals": 10.0,
+                            "fissiles": 20.0,
+                            "antimatter": 50.0,
+                            "exotics": 50.0,
+                        },
+                        "ignore_intraclass": True,
+                    }
+                    max_profile_json = json.dumps(max_profile_for_limit, indent=2)
+                    max_profile_bytes = len(max_profile_json.encode("utf-8"))
+                    size_limit_bytes = max_profile_bytes + 1024  # +1 kB safety margin
+
+                    # 2) Enforce size limit against the actual bytes
+                    if len(file_bytes) > size_limit_bytes:
+                        st.sidebar.error(
+                            f"Profile file is too large (> {size_limit_bytes} bytes). "
+                            "This does not look like a valid profile."
+                        )
                     else:
-                        # 5) Sanitize & validate contents
+                        # 3) Parse JSON
                         try:
-                            sanitized = sanitize_profile_dict(
-                                profile_data,
-                                all_drive_families=all_drive_families,
-                                all_pp_names=all_pp_names,
-                            )
+                            profile_data = json.loads(file_bytes.decode("utf-8"))
                         except Exception as e:
-                            st.sidebar.error(f"Profile failed validation: {e}")
+                            st.sidebar.error(f"Invalid JSON profile: {e}")
                         else:
-                            apply_profile(sanitized)
-                            st.sidebar.success("Profile applied from uploaded JSON.")
+                            # 4) Sanitize & validate contents
+                            try:
+                                sanitized = sanitize_profile_dict(
+                                    profile_data,
+                                    all_drive_families=all_drive_families,
+                                    all_pp_names=all_pp_names,
+                                )
+                            except Exception as e:
+                                st.sidebar.error(f"Profile failed validation: {e}")
+                            else:
+                                apply_profile(sanitized)
+                                st.session_state["last_uploaded_profile_hash"] = file_hash
+                                st.sidebar.success("Profile applied from uploaded JSON.")
         except Exception as e:
             st.sidebar.error(f"Failed to load uploaded profile: {e}")
 
