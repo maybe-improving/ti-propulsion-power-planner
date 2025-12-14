@@ -575,6 +575,27 @@ def load_drive_data() -> pd.DataFrame:
     if "disable" in df.columns:
         df = df[df["disable"].astype(str).str.lower() != "true"]
 
+    # --- NEW: flatten perTankPropellantMaterials dict into columns like
+    # perTankPropellantMaterials/water, /volatiles, etc. ---
+    if "perTankPropellantMaterials" in df.columns:
+        # Each cell should be a dict like {"water": 0.1, "volatiles": 0.0, ...}
+        materials_series = df["perTankPropellantMaterials"].apply(
+        lambda v: v if isinstance(v, dict) else {}
+        )
+        materials_df = pd.DataFrame(list(materials_series))
+        materials_df = materials_df.fillna(0.0)
+
+        for res_key, col_name in DRIVE_PROP_RESOURCE_COLS.items():
+            if res_key in materials_df.columns:
+                df[col_name] = pd.to_numeric(
+                    materials_df[res_key], errors="coerce"
+                ).fillna(0.0)
+            else:
+                # If the resource isn't present, assume 0 for all drives
+                df[col_name] = 0.0
+
+    # --- END NEW BLOCK ---
+
     numeric_cols = [
         "thrust_N",
         "EV_kps",
