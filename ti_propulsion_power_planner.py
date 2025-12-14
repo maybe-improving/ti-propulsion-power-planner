@@ -140,352 +140,219 @@ HELP_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Terra Invicta Propulsion and Power Planner - Help</title>
+  <title>Terra Invicta Propulsion &amp; Power Planner — Help</title>
   <style>
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.5;
-      margin: 1.5rem;
-      max-width: 900px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+      line-height: 1.6;
+      margin: 2rem auto;
+      max-width: 800px;
+      padding: 0 1rem;
+      color: #333;
     }
-    h1, h2, h3 {
-      color: #222;
-    }
+    h1 { color: #1a1a1a; margin-bottom: 0.5rem; }
+    h2 { color: #2c3e50; margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+    h3 { color: #34495e; margin-top: 1.5rem; }
     code {
-      font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      background: #f3f3f3;
-      padding: 0.1em 0.3em;
+      font-family: "Consolas", "Monaco", "Courier New", monospace;
+      background: #f4f4f4;
+      padding: 0.2em 0.4em;
       border-radius: 3px;
+      font-size: 0.9em;
     }
     pre {
-      background: #f3f3f3;
-      padding: 0.75rem 1rem;
-      border-radius: 4px;
+      background: #f8f8f8;
+      padding: 1rem;
+      border-radius: 5px;
       overflow-x: auto;
+      border-left: 3px solid #3498db;
     }
-    ul, ol {
-      margin-left: 1.25rem;
-    }
-    .tag {
-      display: inline-block;
-      padding: 0.1rem 0.4rem;
-      border-radius: 4px;
-      background: #eee;
-      font-size: 0.85em;
+    ul { margin-left: 1.5rem; }
+    li { margin-bottom: 0.5rem; }
+    .intro { font-size: 1.1em; color: #555; margin-bottom: 1.5rem; }
+    .tip {
+      background: #e8f4f8;
+      padding: 1rem;
+      border-left: 4px solid #3498db;
+      margin: 1rem 0;
+      border-radius: 3px;
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Terra Invicta Propulsion and Power Planner</h1>
-    <p>
-      This tool helps you reason about ship drives and power plants in
-      <strong>Terra Invicta</strong>:
-      which drives/reactors are dominated, which combinations are valid,
-      and how they behave for a reference ship and target missions.
-    </p>
-  </header>
+  <h1>Terra Invicta Propulsion &amp; Power Planner</h1>
+  <p class="intro">
+    A tool for analyzing ship drives and power plants in <strong>Terra Invicta</strong>. 
+    Identify obsolete (dominated) drives and reactors, explore valid combinations, 
+    and find feasible designs for mission requirements.
+  </p>
 
-  <main>
-    <h2>1. Data &amp; requirements</h2>
-    <p>
-      The app reads two local JSON files from your Terra Invicta installation:
-    </p>
-    <ul>
-      <li><code>TIDriveTemplate.json</code> – drive data</li>
-      <li><code>TIPowerPlantTemplate.json</code> – power plant (reactor) data</li>
-    </ul>
-    <p>
-      It looks for these files in the following locations:
-    </p>
-    <ol>
-      <li>The folder specified by the <code>TI_TEMPLATES_DIR</code> environment variable (if set)</li>
-      <li>
-        The default Steam path on Windows:<br />
-        <code>C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta\TerraInvicta_Data\StreamingAssets\Templates</code>
-      </li>
-      <li>
-        The current working directory (next to the app script), if you copy the
-        JSON files there manually
-      </li>
-    </ol>
-    <p>
-      If the app cannot find the JSON files, it will show a clear error message
-      with hints on how to fix the path.
-    </p>
+  <h2>Quick Start</h2>
+  <ol>
+    <li><strong>Unlock drives and reactors</strong> — Start by unlocking drive families and power plants</li>
+    <li><strong>Set resource abundance</strong> — Mark which resources are plentiful in your campaign</li>
+    <li><strong>Review obsolescence</strong> — Check the Drives and Power Plants tabs for dominated items</li>
+    <li><strong>Explore combinations</strong> — View valid drive+reactor pairs and their performance</li>
+    <li><strong>Design missions</strong> — Use the mission search to find configurations meeting your Δv/accel targets</li>
+  </ol>
 
-    <h2>2. Sidebar: help &amp; profiles</h2>
-    <h3>2.1 Help</h3>
-    <p>
-      At the top of the sidebar you can click
-      <strong>“Download help file”</strong> to get this HTML help on disk.
-    </p>
+  <h2>Data Sources</h2>
+  <p>The app reads game data from JSON templates in your Terra Invicta installation:</p>
+  <ul>
+    <li><code>TIDriveTemplate.json</code> — drive specifications</li>
+    <li><code>TIPowerPlantTemplate.json</code> — reactor specifications</li>
+  </ul>
+  <p>Search locations (in order):</p>
+  <ol>
+    <li>Environment variable: <code>TI_TEMPLATES_DIR</code></li>
+    <li>Default Steam path (Windows): <code>C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta\TerraInvicta_Data\StreamingAssets\Templates</code></li>
+    <li>Current working directory (for manual copies)</li>
+  </ol>
+  <div class="tip">
+    <strong>Tip:</strong> If templates aren't found, set the <code>TI_TEMPLATES_DIR</code> environment variable 
+    to point to your game's Templates folder.
+  </div>
 
-    <h3>2.2 Profiles</h3>
-    <p>
-      Profiles store:
-    </p>
-    <ul>
-      <li>Unlocked drive families</li>
-      <li>Unlocked reactors</li>
-      <li>Resource abundance flags</li>
-      <li>Optional obsolescence parameters</li>
-      <li>Reference payload/propellant masses</li>
-      <li>Fuel cost weights</li>
-      <li>Acceleration display units setting</li>
-    </ul>
-    <p>
-      Use the buttons under <strong>Profile</strong>:
-    </p>
-    <ul>
-      <li><span class="tag">Download profile JSON</span> – saves current settings as a JSON file</li>
-      <li>
-        <span class="tag">Upload profile JSON</span> – select a previously saved JSON file
-        to restore settings
-      </li>
-    </ul>
-    <p>
-      This works both locally and on Streamlit Cloud without any server-side disk storage.
-    </p>
+  <h2>Profiles</h2>
+  <p>Save and restore your configuration as JSON files:</p>
+  <ul>
+    <li><strong>Download profile JSON</strong> — Export current settings (unlocked items, resources, weights, reference masses)</li>
+    <li><strong>Upload profile JSON</strong> — Restore a previously saved configuration</li>
+  </ul>
+  <p>Profiles work both locally and on Streamlit Cloud with no server-side storage required.</p>
 
-    <h2>3. Global settings</h2>
-    <h3>3.1 Resource abundance</h3>
-    <p>
-      These checkboxes describe which resources are “plentiful” in your campaign:
-    </p>
-    <ul>
-      <li>Water abundant</li>
-      <li>Volatiles abundant</li>
-      <li>Base metals abundant</li>
-      <li>Noble metals abundant</li>
-      <li>Fissiles abundant</li>
-      <li>Antimatter abundant</li>
-      <li>Exotics abundant</li>
-    </ul>
-    <p>
-      Drives whose per-tank propellant requires any resource marked as
-      <em>not abundant</em> are flagged as using
-      <strong>scarce propellant</strong>, and that affects drive dominance:
-      a drive that uses scarce fuel cannot dominate a drive that does not.
-    </p>
+  <h2>Global Settings</h2>
+  
+  <h3>Resource Abundance</h3>
+  <p>Mark which resources are abundant in your campaign. Drives using non-abundant resources are flagged 
+  as using <strong>scarce propellant</strong>, which prevents them from dominating drives with abundant-only fuel.</p>
+  <p>Resources: Water, Volatiles, Base Metals, Noble Metals, Fissiles, Antimatter, Exotics</p>
 
-    <h3>3.2 Optional obsolescence parameters</h3>
-    <ul>
-      <li>
-        <strong>Care about drives that provide backup power when idle</strong><br />
-        When enabled, drives that provide power when idle (backup mode
-        <em>Always</em> or <em>DriveIdle</em>) are favoured:
-        <ul>
-          <li>A drive without idle backup cannot dominate one that has it.</li>
-          <li>Idle backup can break ties and make a drive strictly better.</li>
-        </ul>
-      </li>
-      <li>
-        <strong>Care about crew size</strong><br />
-        When enabled, the reactor dominance logic considers crew as a dimension:
-        <ul>
-          <li>Lower crew is strictly better.</li>
-          <li>A reactor with higher crew cannot dominate one with lower crew.</li>
-        </ul>
-        When disabled, crew size is ignored for reactor obsolescence.
-      </li>
-    </ul>
+  <h3>Obsolescence Options</h3>
+  <ul>
+    <li><strong>Care about backup power</strong> — Drives providing idle backup power (Always/DriveIdle modes) 
+    cannot be dominated by drives without this feature</li>
+    <li><strong>Care about crew size</strong> — Reactors with lower crew requirements are preferred; 
+    high-crew reactors cannot dominate low-crew ones</li>
+    <li><strong>Don't mark drives obsolete within same family</strong> — Prevents intra-family dominance 
+    (e.g., Resistojet x2 won't mark x1 obsolete)</li>
+  </ul>
 
-    <h3>3.3 Drive dominance options</h3>
-    <ul>
-      <li>
-        <strong>Don’t mark drives obsolete within the same family/class</strong><br />
-        Prevents intra-family dominance (e.g. Resistojet x2 never marks Resistojet x1 obsolete),
-        so you can always see the full progression within a drive family.
-      </li>
-      <li>
-        <strong>Hide dominated combos (combo-level obsolete)</strong><br />
-        Applies to the combined Drive + Power Plant table:
-        only non-dominated combinations are shown when this is checked.
-      </li>
-    </ul>
+  <h3>Fuel Cost Weights</h3>
+  <p>Assign weights to each resource type to calculate an <strong>Expensive Fuel Score</strong> for each drive. 
+  Drives using high-weight resources receive higher scores. This metric appears in tables and affects combo-level dominance.</p>
 
-    <h3>3.4 Fuel cost weights</h3>
-    <p>
-      These sliders set a scalar “Expensive Fuel Score” for each drive, based on its
-      per-tank propellant mix:
-    </p>
-    <ul>
-      <li>Water weight</li>
-      <li>Volatiles weight</li>
-      <li>Base metals weight</li>
-      <li>Noble metals weight</li>
-      <li>Fissiles weight</li>
-      <li>Antimatter weight</li>
-      <li>Exotics weight</li>
-    </ul>
-    <p>
-      Drives that lean on high-weight resources get a larger Expensive Fuel Score.
-      This appears in the Drives table and the combos table, and is used in
-      combo-level dominance.
-    </p>
+  <h3>Reference Ship</h3>
+  <p>Set reference payload and propellant masses (up to 300,000 tons each). The app calculates these metrics for each valid combo:</p>
+  <ul>
+    <li>Ref Delta-v (km/s)</li>
+    <li>Ref Cruise Acceleration (g or milli-g)</li>
+    <li>Ref Combat Acceleration (g or milli-g)</li>
+    <li>Total Wet Mass (tons)</li>
+    <li>Power Ratio (reactor output / drive requirement)</li>
+  </ul>
 
-    <h3>3.5 Reference ship (for Δv / accel)</h3>
-    <p>
-      These control the reference ship mass used in the Drive+Reactor combos:
-    </p>
-    <ul>
-      <li><strong>Reference payload mass (tons)</strong> – up to 300,000 tons</li>
-      <li><strong>Reference propellant mass (tons)</strong> – up to 300,000 tons</li>
-    </ul>
-    <p>
-      For each valid combo, the app computes:
-    </p>
-    <ul>
-      <li>Ref Delta-v (km/s)</li>
-      <li>Ref Cruise Accel (g or milli-g)</li>
-      <li>Ref Combat Accel (g or milli-g)</li>
-      <li>Total Wet Mass (tons)</li>
-    </ul>
-    <p>
-      Changing these sliders immediately updates the combos table,
-      scatterplot, and mission feasibility results.
-    </p>
+  <h3>Display Options</h3>
+  <p><strong>Display accelerations in milligees</strong> — Toggle between g and milli-g units for acceleration display 
+  (calculations remain in g internally)</p>
 
-    <h3>3.6 Display options</h3>
-    <ul>
-      <li>
-        <strong>Display accelerations in milligees</strong><br />
-        When enabled, all displayed acceleration values in the tables, scatterplot,
-        and mission results are shown in milli-g instead of g.
-        Internally, calculations are still performed in g; this only changes display units.
-      </li>
-    </ul>
+  <h2>Unlocking Content</h2>
+  
+  <h3>Drives</h3>
+  <p>Drives unlock by <strong>family</strong> (e.g., "Tungsten Resistojet"), automatically including all x1–x6 variants.</p>
+  <p>Controls: Search, Add Family, Unlock ALL, Clear All, Remove Selected</p>
 
-    <h2>4. Unlocked content</h2>
-    <h3>4.1 Drives (families)</h3>
-    <p>
-      Drives are unlocked by <strong>family</strong>, e.g. “Tungsten Resistojet”.
-      Adding a family automatically unlocks all its x1..x6 variants.
-    </p>
-    <ul>
-      <li>Use the search box to filter drive families.</li>
-      <li>“Add Drive Family” – add the selected family to your unlocked list.</li>
-      <li>“Unlock ALL drive families” – unlocks everything.</li>
-      <li>“Clear all drives” – removes all unlocked families.</li>
-      <li>“Remove selected drive families” – remove specific families.</li>
-    </ul>
+  <h3>Power Plants</h3>
+  <p>Reactors unlock individually by exact name (no family grouping).</p>
+  <p>Controls: Search, Add Reactor, Unlock ALL, Clear All, Remove Selected</p>
 
-    <h3>4.2 Power plants (reactors)</h3>
-    <p>
-      Reactors are unlocked one by one by name (not by family).
-    </p>
-    <ul>
-      <li>Use the search box to filter reactors.</li>
-      <li>“Add Reactor” – add the selected reactor to your unlocked list.</li>
-      <li>“Unlock ALL reactors” – unlocks everything.</li>
-      <li>“Clear all reactors” – removes all unlocked reactors.</li>
-      <li>“Remove selected reactors” – remove specific ones.</li>
-    </ul>
+  <h2>Obsolescence Analysis</h2>
+  
+  <h3>Drive Obsolescence (🚀 Drives Tab)</h3>
+  <p>Drives are marked <strong>Obsolete</strong> when dominated on all of:</p>
+  <ul>
+    <li>Thrust (higher is better)</li>
+    <li>Exhaust Velocity (higher is better)</li>
+    <li>Power Use Efficiency (higher is better)</li>
+    <li>Drive Mass (lower is better)</li>
+    <li>Fuel scarcity (non-scarce preferred)</li>
+    <li>Backup power (if enabled; backup preferred)</li>
+  </ul>
+  <p>The <strong>Dominates (count)</strong> column shows how many other drives each drive dominates. 
+  Use checkboxes on the left to show/hide columns.</p>
 
-    <h2>5. Drive &amp; reactor obsolescence tables</h2>
-    <h3>5.1 Drives</h3>
-    <p>
-      The Drives tab shows each unlocked drive variant (x1..x6) and whether it is
-      marked <strong>Obsolete</strong> (dominated) based on:
-    </p>
-    <ul>
-      <li>Thrust (higher is better)</li>
-      <li>Exhaust Velocity (higher is better)</li>
-      <li>Power Use Efficiency (higher is better)</li>
-      <li>Drive Mass (lower is better)</li>
-      <li>Fuel scarcity (non-scarce is better)</li>
-      <li>Idle backup power (if that option is enabled)</li>
-    </ul>
-    <p>
-      Each drive also has a <strong>“Dominates (count)”</strong> column, indicating
-      how many other drive variants it strictly dominates under the current settings.
-      You can toggle which columns are visible using the checkboxes on the left.
-    </p>
+  <h3>Reactor Obsolescence (⚡ Power Plants Tab)</h3>
+  <p>Reactors are marked obsolete when dominated on all of:</p>
+  <ul>
+    <li>Max Output (GW) — higher is better</li>
+    <li>Efficiency — higher is better</li>
+    <li>General Use flag — True is better</li>
+    <li>Specific Power (tons/GW) — lower is better</li>
+    <li>Crew size — lower is better (if enabled)</li>
+  </ul>
+  <p>The <strong>Dominates (count)</strong> column shows domination count. Column visibility is customizable.</p>
 
-    <h3>5.2 Power plants</h3>
-    <p>
-      The Power Plants tab shows each unlocked reactor and whether it is dominated
-      based on:
-    </p>
-    <ul>
-      <li>Max Output (GW) – higher is better</li>
-      <li>Efficiency – higher is better</li>
-      <li>General Use flag – True is better</li>
-      <li>Specific Power (tons/GW) – lower is better</li>
-      <li>Crew – lower is better if “care about crew size” is enabled</li>
-    </ul>
-    <p>
-      Each reactor also has a <strong>“Dominates (count)”</strong> column, indicating
-      how many other reactors it strictly dominates.
-    </p>
+  <h2>Valid Combinations</h2>
+  <p>Below the tabs, view all valid (drive, reactor) pairs where:</p>
+  <ul>
+    <li>Both drive and reactor are non-obsolete</li>
+    <li>Reactor class matches drive requirements</li>
+    <li>Reactor provides sufficient power for the drive</li>
+  </ul>
+  <p>Each combo shows reference metrics (Δv, accel, power ratio, mass, fuel score). 
+  Enable <strong>Hide dominated combos</strong> to filter combo-level obsolete pairs.</p>
+  <p>Reactor mass is automatically scaled to match the drive's power requirement.</p>
 
-    <h2>6. Valid Drive + Power Plant combinations</h2>
-    <p>
-      Below the tabs, the app lists all valid, non-obsolete (drive, reactor) combos
-      where the reactor has enough power for the drive. For each combo it computes:
-    </p>
-    <ul>
-      <li>Ref Delta-v (km/s)</li>
-      <li>Ref Cruise Accel (g or milli-g)</li>
-      <li>Ref Combat Accel (g or milli-g)</li>
-      <li>Power Ratio (PP/Drive)</li>
-      <li>Total Wet Mass (tons)</li>
-      <li>Drive Expensive Fuel Score</li>
-    </ul>
-    <p>
-      A combo-level dominance check can mark combinations as obsolete; when
-      “Hide dominated combos” is checked, dominated combos are removed from this table.
-    </p>
+  <h2>Scatterplot Visualization</h2>
+  <p>Plot any two metrics against each other:</p>
+  <ul>
+    <li>Drive Expensive Fuel Score</li>
+    <li>Ref Delta-v (km/s)</li>
+    <li>Ref Cruise Accel</li>
+    <li>Ref Combat Accel</li>
+    <li>Power Ratio (PP/Drive)</li>
+    <li>Total Wet Mass (tons)</li>
+  </ul>
+  <p><strong>Default:</strong> Ref Cruise Accel (X) vs Ref Delta-v (Y)</p>
+  <div class="tip">
+    <strong>Tip:</strong> If you select the same metric for both axes, the app displays 
+    an informational message instead of a broken chart.
+  </div>
 
-    <h2>7. Scatterplot</h2>
-    <p>
-      You can visualize the non-dominated combos in a 2D scatterplot using:
-    </p>
-    <ul>
-      <li>Drive Expensive Fuel Score</li>
-      <li>Ref Delta-v (km/s)</li>
-      <li>Ref Cruise Accel (g or milli-g)</li>
-      <li>Ref Combat Accel (g or milli-g)</li>
-      <li>Power Ratio (PP/Drive)</li>
-      <li>Total Wet Mass (tons)</li>
-    </ul>
-    <p>
-      By default, the plot shows <strong>Ref Cruise Accel</strong> on the X-axis
-      and <strong>Ref Delta-v (km/s)</strong> on the Y-axis.
-      If you choose the same metric for both axes, the app shows a friendly message
-      instead of a degenerate chart.
-    </p>
+  <h2>Mission Feasibility Search</h2>
+  <p>Find configurations that meet specific mission requirements:</p>
+  <ol>
+    <li>Set <strong>Target Δv</strong> (km/s)</li>
+    <li>Choose <strong>Acceleration type</strong> (cruise or combat)</li>
+    <li>Set <strong>Target Acceleration</strong> (g or milli-g)</li>
+    <li>Set <strong>Minimum Payload Mass</strong> (tons, up to 300,000)</li>
+  </ol>
+  <p>The app searches payload and propellant mass combinations for each valid combo, showing:</p>
+  <ul>
+    <li>Payload Mass (tons)</li>
+    <li>Propellant Mass (tons)</li>
+    <li>Result Delta-v (km/s)</li>
+    <li>Result Acceleration (g or milli-g)</li>
+    <li>Max Feasible Payload (tons) — analytic upper bound for the mission</li>
+  </ul>
 
-    <h2>8. Mission feasibility search</h2>
-    <p>
-      At the bottom of the page, the Mission Feasibility Search lets you specify:
-    </p>
-    <ul>
-      <li>Target Δv (km/s)</li>
-      <li>Acceleration constraint:
-        <ul>
-          <li>Combat acceleration (g)</li>
-          <li>Cruise acceleration (g)</li>
-        </ul>
-      </li>
-      <li>Minimum payload mass (tons, up to 300,000)</li>
-    </ul>
-    <p>
-      For each valid combo, the app searches over a grid of payload and propellant
-      masses to find a feasible configuration that meets both Δv and accel targets.
-      Results include:
-    </p>
-    <ul>
-      <li>Payload Mass (tons)</li>
-      <li>Propellant Mass (tons)</li>
-      <li>Result Delta-v (km/s)</li>
-      <li>Result Accel (g or milli-g, based on the display setting)</li>
-      <li>Max Feasible Payload (tons)</li>
-    </ul>
-  </main>
+  <h2>Tips &amp; Best Practices</h2>
+  <ul>
+    <li><strong>Start small:</strong> Unlock a few drives/reactors to understand dominance before unlocking everything</li>
+    <li><strong>Adjust weights:</strong> Fine-tune fuel cost weights based on your campaign's resource constraints</li>
+    <li><strong>Use profiles:</strong> Save configurations for different campaign stages or scenarios</li>
+    <li><strong>Check dominance counts:</strong> High domination counts indicate generally superior drives/reactors</li>
+    <li><strong>Mission search limitations:</strong> Results are approximate; verify in-game for critical missions</li>
+  </ul>
+
+  <hr style="margin-top: 3rem; border: none; border-top: 1px solid #ddd;" />
+  <p style="font-size: 0.9em; color: #777; text-align: center;">
+    Not affiliated with Hooded Horse, Pavonis Interactive, or the Terra Invicta team.<br />
+    Fan-made analysis tool using exported game data.
+  </p>
 </body>
 </html>
+
 """
 
 # ---------------------------------------------------------------------------
