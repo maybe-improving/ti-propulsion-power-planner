@@ -963,8 +963,10 @@ def find_drive_required_pp_column(drive_df: pd.DataFrame, pp_df: pd.DataFrame) -
 # ---------------------------------------------------------------------------
 
 def apply_profile(profile: Dict[str, Any]) -> None:
-    st.session_state.unlocked_drive_families = profile.get("unlocked_drive_families", [])
-    st.session_state.unlocked_pp = profile.get("unlocked_pp", [])
+    st.session_state.unlocked_drive_families = list(
+        profile.get("unlocked_drive_families", []) or []
+    )
+    st.session_state.unlocked_pp = list(profile.get("unlocked_pp", []) or [])
 
     ra = profile.get("resource_abundance", {})
     st.session_state["water_abundant"] = bool(ra.get("water", True))
@@ -2484,6 +2486,7 @@ def main():
                                 apply_profile(sanitized)
                                 st.session_state["last_uploaded_profile_hash"] = file_hash
                                 st.sidebar.success("Profile applied from uploaded JSON.")
+                                st.rerun()
         except Exception as e:
             st.sidebar.error(f"Failed to load uploaded profile: {e}")
 
@@ -2809,16 +2812,21 @@ def main():
                     add_drive_choice != "-- Select drive family --"
                     and add_drive_choice not in st.session_state.unlocked_drive_families
                 ):
-                    st.session_state.unlocked_drive_families.append(add_drive_choice)
+                    st.session_state.unlocked_drive_families = (
+                        list(st.session_state.unlocked_drive_families) + [add_drive_choice]
+                    )
                     st.session_state["scroll_to_top"] = True
+                    st.rerun()
         with add_cols[1]:
             if st.button("Unlock ALL drive families", key="btn_unlock_all_drives"):
                 st.session_state.unlocked_drive_families = list(all_drive_families)
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
         with add_cols[2]:
             if st.button("Clear all drives", key="btn_clear_drives"):
                 st.session_state.unlocked_drive_families = []
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
 
         unlocked_drive_families = st.session_state.unlocked_drive_families
         st.write(f"Unlocked drive families: **{len(unlocked_drive_families)}**")
@@ -2836,6 +2844,7 @@ def main():
                     d for d in unlocked_drive_families if d not in to_remove
                 ]
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
 
     with col_p:
         st.markdown("### Power Plants")
@@ -2856,16 +2865,19 @@ def main():
         with pp_cols[0]:
             if st.button("Add Reactor", key="btn_add_pp"):
                 if add_pp_choice != "-- Select reactor --" and add_pp_choice not in st.session_state.unlocked_pp:
-                    st.session_state.unlocked_pp.append(add_pp_choice)
+                    st.session_state.unlocked_pp = list(st.session_state.unlocked_pp) + [add_pp_choice]
                     st.session_state["scroll_to_top"] = True
+                    st.rerun()
         with pp_cols[1]:
             if st.button("Unlock ALL reactors", key="btn_unlock_all_pp"):
                 st.session_state.unlocked_pp = list(all_pp_names)
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
         with pp_cols[2]:
             if st.button("Clear all reactors", key="btn_clear_pp"):
                 st.session_state.unlocked_pp = []
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
 
         unlocked_pp = st.session_state.unlocked_pp
         st.write(f"Unlocked power plants: **{len(unlocked_pp)}**")
@@ -2883,6 +2895,7 @@ def main():
                     p for p in unlocked_pp if p not in to_remove_pp
                 ]
                 st.session_state["scroll_to_top"] = True
+                st.rerun()
 
     st.markdown("---")
 
