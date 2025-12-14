@@ -1110,8 +1110,25 @@ def sanitize_profile_dict(
 # Feature engineering
 # ---------------------------------------------------------------------------
 
-def compute_drive_power_gw(thrust_n: float, ev_kps: float) -> float:
-    return thrust_n * ev_kps / 2_000_000.0
+def compute_drive_power_gw(thrust_n: float, ev_kps: float, efficiency: float = 1.0) -> float:
+    """Approximate *input* power required (GW).
+
+    Exhaust kinetic power is roughly $P_{exhaust} = F V_e / 2$.
+    If the drive has efficiency $\\eta$, required input power is
+    $P_{in} \\approx P_{exhaust} / \\eta$.
+
+    Args:
+        thrust_n: Thrust in Newtons.
+        ev_kps: Exhaust velocity in km/s.
+        efficiency: Drive efficiency in [0,1]. If <= 0, returns +inf.
+    """
+    try:
+        eff = float(efficiency)
+    except Exception:
+        eff = 1.0
+    if (not math.isfinite(eff)) or eff <= 0.0:
+        return float("inf")
+    return thrust_n * ev_kps / (2_000_000.0 * eff)
 
 
 def interpret_backup(raw: str) -> str:
@@ -1159,7 +1176,7 @@ def build_drive_features(
         mass = float(row.get("flatMass_tons", 0.0))
         thrust_cap = float(row.get("thrustCap", 0.0))
 
-        power_gw = compute_drive_power_gw(thrust, ev)
+        power_gw = compute_drive_power_gw(thrust, ev, eff)
 
         prop_enum = str(row.get("propellant", "")).strip()
         prop_label = PROP_TRANSLATION.get(prop_enum, prop_enum or "Unknown")
@@ -1203,7 +1220,7 @@ def build_drive_features(
                 "Exhaust Velocity (km/s)": ev,
                 "Power Use Efficiency": eff,
                 "Drive Mass (tons)": mass,
-                "Approx. Drive Power (GW)": power_gw,
+                "Required Input Power (GW)": power_gw,
                 "Propellant Type": prop_label,
                 "Per-Tank Propellant Mix": mix_str,
                 "Backup Power Mode": backup_mode,
@@ -1762,7 +1779,7 @@ def build_valid_drive_pp_combos(
             thrust_cap = float(d.get("Combat Thrust Multiplier", 1.0))
             ev_kps = float(d.get("Exhaust Velocity (km/s)", 0.0))
             drive_mass = float(d.get("Drive Mass (tons)", 0.0))
-            drive_power = float(d.get("Approx. Drive Power (GW)", 0.0))
+            drive_power = float(d.get("Required Input Power (GW)", 0.0))
             fuel_score = float(d.get("Expensive Fuel Score", 0.0))
 
             pp_max_output = float(p.get("Max Output (GW)", 0.0))
