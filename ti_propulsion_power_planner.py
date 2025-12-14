@@ -1421,19 +1421,179 @@ def annotate_pp_obsolescence(feat_df: pd.DataFrame, care_crew: bool) -> pd.DataF
     return out
 
 
+def _annotate_drive_suggestion_dominance(
+    candidates_df: pd.DataFrame,
+    unlocked_df: pd.DataFrame,
+    care_backup: bool,
+    ignore_intraclass: bool,
+    class_col: str = "FamilyName",
+) -> pd.DataFrame:
+    """Annotate candidate drives with both raw and *new* dominance metrics.
+
+    New dominance metrics discount targets that are already dominated at least once
+    by currently unlocked drives.
+    """
+    if candidates_df is None or candidates_df.empty:
+        return pd.DataFrame()
+
+    n = len(candidates_df)
+    obsolete_flags: List[bool] = [False] * n
+    dominated_by: List[List[str]] = [[] for _ in range(n)]
+    dominates_count: List[int] = [0] * n
+
+    # Targets (by candidate index) that are already dominated by any unlocked drive.
+    already_dominated_target: List[bool] = [False] * n
+    if unlocked_df is not None and not unlocked_df.empty:
+        for i in range(n):
+            row_b = candidates_df.iloc[i]
+            for _, row_a in unlocked_df.iterrows():
+                if dominates_drive(row_a, row_b, care_backup, ignore_intraclass, class_col):
+                    already_dominated_target[i] = True
+                    break
+
+    # Track which targets each candidate dominates (as indices).
+    dominated_targets_by: List[set] = [set() for _ in range(n)]
+    new_dominated_targets_by: List[set] = [set() for _ in range(n)]
+
+    for i in range(n):
+        row_b = candidates_df.iloc[i]
+        for j in range(n):
+            if i == j:
+                continue
+            row_a = candidates_df.iloc[j]
+            if dominates_drive(row_a, row_b, care_backup, ignore_intraclass, class_col):
+                # row_a dominates row_b
+                obsolete_flags[i] = True
+                dominated_by[i].append(row_a["Name"])
+                dominates_count[j] += 1
+                dominated_targets_by[j].add(i)
+                if not already_dominated_target[i]:
+                    new_dominated_targets_by[j].add(i)
+
+    out = candidates_df.copy()
+    out["Obsolete"] = obsolete_flags
+    out["Dominates (count)"] = dominates_count
+    out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
+
+    new_dominances = [len(s) for s in new_dominated_targets_by]
+    out["New Dominances"] = new_dominances
+
+    if "Unlock Total Research Cost" in out.columns:
+        unlock_costs = out["Unlock Total Research Cost"].tolist()
+        dom_eff: List[Optional[float]] = []
+        new_dom_eff: List[Optional[float]] = []
+        for idx in range(n):
+            cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
+            count = dominates_count[idx]
+            new_count = new_dominances[idx]
+
+            if count > 0 and cost not in (None, 0, 0.0):
+                dom_eff.append((float(count) * 1000.0) / float(cost))
+            else:
+                dom_eff.append(None)
+
+            if new_count > 0 and cost not in (None, 0, 0.0):
+                new_dom_eff.append((float(new_count) * 1000.0) / float(cost))
+            else:
+                new_dom_eff.append(None)
+
+        out["Domination Efficiency"] = dom_eff
+        out["New Domination Efficiency"] = new_dom_eff
+
+    return out
+
+
+def _annotate_pp_suggestion_dominance(
+    candidates_df: pd.DataFrame,
+    unlocked_df: pd.DataFrame,
+    care_crew: bool,
+) -> pd.DataFrame:
+    """Annotate candidate reactors with both raw and *new* dominance metrics.
+
+    New dominance metrics discount targets that are already dominated at least once
+    by currently unlocked reactors.
+    """
+    if candidates_df is None or candidates_df.empty:
+        return pd.DataFrame()
+
+    n = len(candidates_df)
+    obsolete_flags: List[bool] = [False] * n
+    dominated_by: List[List[str]] = [[] for _ in range(n)]
+    dominates_count: List[int] = [0] * n
+
+    already_dominated_target: List[bool] = [False] * n
+    if unlocked_df is not None and not unlocked_df.empty:
+        for i in range(n):
+            row_b = candidates_df.iloc[i]
+            for _, row_a in unlocked_df.iterrows():
+                if dominates_pp(row_a, row_b, care_crew):
+                    already_dominated_target[i] = True
+                    break
+
+    new_dominated_targets_by: List[set] = [set() for _ in range(n)]
+
+    for i in range(n):
+        row_b = candidates_df.iloc[i]
+        for j in range(n):
+            if i == j:
+                continue
+            row_a = candidates_df.iloc[j]
+            if dominates_pp(row_a, row_b, care_crew):
+                obsolete_flags[i] = True
+                dominated_by[i].append(row_a["Name"])
+                dominates_count[j] += 1
+                if not already_dominated_target[i]:
+                    new_dominated_targets_by[j].add(i)
+
+    out = candidates_df.copy()
+    out["Obsolete"] = obsolete_flags
+    out["Dominates (count)"] = dominates_count
+    out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
+
+    new_dominances = [len(s) for s in new_dominated_targets_by]
+    out["New Dominances"] = new_dominances
+
+    if "Unlock Total Research Cost" in out.columns:
+        unlock_costs = out["Unlock Total Research Cost"].tolist()
+        dom_eff: List[Optional[float]] = []
+        new_dom_eff: List[Optional[float]] = []
+        for idx in range(n):
+            cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
+            count = dominates_count[idx]
+            new_count = new_dominances[idx]
+
+            if count > 0 and cost not in (None, 0, 0.0):
+                dom_eff.append((float(count) * 1000.0) / float(cost))
+            else:
+                dom_eff.append(None)
+
+            if new_count > 0 and cost not in (None, 0, 0.0):
+                new_dom_eff.append((float(new_count) * 1000.0) / float(cost))
+            else:
+                new_dom_eff.append(None)
+
+        out["Domination Efficiency"] = dom_eff
+        out["New Domination Efficiency"] = new_dom_eff
+
+    return out
+
+
 def _sort_suggestions(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
     out = df.copy()
+    dom_eff_col = "New Domination Efficiency" if "New Domination Efficiency" in out.columns else "Domination Efficiency"
+    dom_count_col = "New Dominances" if "New Dominances" in out.columns else "Dominates (count)"
+
     out["__dom_eff_sort"] = (
-        out["Domination Efficiency"].fillna(-math.inf)
-        if "Domination Efficiency" in out.columns
+        out[dom_eff_col].fillna(-math.inf)
+        if dom_eff_col in out.columns
         else -math.inf
     )
     out["__dom_count_sort"] = (
-        out["Dominates (count)"].fillna(0)
-        if "Dominates (count)" in out.columns
+        out[dom_count_col].fillna(0)
+        if dom_count_col in out.columns
         else 0
     )
     out["__unlock_cost_sort"] = (
@@ -1470,15 +1630,20 @@ def compute_drive_tech_suggestions(
     if candidates.empty:
         return pd.DataFrame()
 
-    annotated = annotate_drive_obsolescence(
+    unlocked_df = drive_feat_all[unlocked_mask].copy()
+    annotated = _annotate_drive_suggestion_dominance(
         candidates,
+        unlocked_df,
         care_backup=care_backup,
         ignore_intraclass=ignore_intraclass,
         class_col="FamilyName",
     )
 
-    if hide_zero and "Dominates (count)" in annotated.columns:
-        annotated = annotated[annotated["Dominates (count)"] > 0]
+    if hide_zero:
+        if "New Dominances" in annotated.columns:
+            annotated = annotated[annotated["New Dominances"] > 0]
+        elif "Dominates (count)" in annotated.columns:
+            annotated = annotated[annotated["Dominates (count)"] > 0]
 
     if "Unlock Total Research Cost" in annotated.columns:
         annotated = annotated[annotated["Unlock Total Research Cost"] > 0]
@@ -1507,10 +1672,18 @@ def compute_pp_tech_suggestions(
     if candidates.empty:
         return pd.DataFrame()
 
-    annotated = annotate_pp_obsolescence(candidates, care_crew=care_crew)
+    unlocked_df = pp_feat_all[unlocked_mask].copy()
+    annotated = _annotate_pp_suggestion_dominance(
+        candidates,
+        unlocked_df,
+        care_crew=care_crew,
+    )
 
-    if hide_zero and "Dominates (count)" in annotated.columns:
-        annotated = annotated[annotated["Dominates (count)"] > 0]
+    if hide_zero:
+        if "New Dominances" in annotated.columns:
+            annotated = annotated[annotated["New Dominances"] > 0]
+        elif "Dominates (count)" in annotated.columns:
+            annotated = annotated[annotated["Dominates (count)"] > 0]
 
     if "Unlock Total Research Cost" in annotated.columns:
         annotated = annotated[annotated["Unlock Total Research Cost"] > 0]
@@ -2697,6 +2870,8 @@ def main():
                 for c in [
                     "Name",
                     "FamilyName",
+                    "New Domination Efficiency",
+                    "New Dominances",
                     "Domination Efficiency",
                     "Dominates (count)",
                     "Unlock Project",
@@ -2805,6 +2980,8 @@ def main():
                 for c in [
                     "Name",
                     "Class",
+                    "New Domination Efficiency",
+                    "New Dominances",
                     "Domination Efficiency",
                     "Dominates (count)",
                     "Unlock Project",
