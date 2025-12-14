@@ -84,6 +84,8 @@ DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta
 
 DRIVE_JSON_FILENAME = "TIDriveTemplate.json"
 PP_JSON_FILENAME = "TIPowerPlantTemplate.json"
+PROJECT_JSON_FILENAME = "TIProjectTemplate.json"
+
 
 
 def _find_template_file(filename: str) -> str:
@@ -547,6 +549,7 @@ def _compute_drive_family_name(display_name: str) -> str:
 
 
 @st.cache_data(show_spinner=True)
+
 def load_drive_data() -> pd.DataFrame:
     """
     Load TIDriveTemplate.json from the Terra Invicta game files (or local folder)
@@ -558,7 +561,8 @@ def load_drive_data() -> pd.DataFrame:
 
     df = pd.DataFrame(data)
 
-    for col in ("friendlyName", "dataName", "propellant"):
+    # Normalize some key string columns
+    for col in ("friendlyName", "dataName", "propellant", "requiredProjectName"):
         if col in df.columns:
             df[col] = df[col].astype(str).fillna("").str.strip()
 
@@ -575,12 +579,10 @@ def load_drive_data() -> pd.DataFrame:
     if "disable" in df.columns:
         df = df[df["disable"].astype(str).str.lower() != "true"]
 
-    # --- NEW: flatten perTankPropellantMaterials dict into columns like
-    # perTankPropellantMaterials/water, /volatiles, etc. ---
+    # Flatten perTankPropellantMaterials (dict) into columns expected in DRIVE_PROP_RESOURCE_COLS
     if "perTankPropellantMaterials" in df.columns:
-        # Each cell should be a dict like {"water": 0.1, "volatiles": 0.0, ...}
         materials_series = df["perTankPropellantMaterials"].apply(
-        lambda v: v if isinstance(v, dict) else {}
+            lambda v: v if isinstance(v, dict) else {}
         )
         materials_df = pd.DataFrame(list(materials_series))
         materials_df = materials_df.fillna(0.0)
@@ -591,10 +593,7 @@ def load_drive_data() -> pd.DataFrame:
                     materials_df[res_key], errors="coerce"
                 ).fillna(0.0)
             else:
-                # If the resource isn't present, assume 0 for all drives
                 df[col_name] = 0.0
-
-    # --- END NEW BLOCK ---
 
     numeric_cols = [
         "thrust_N",
@@ -609,10 +608,15 @@ def load_drive_data() -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
+    # Ensure requiredProjectName exists even if not in source JSON
+    if "requiredProjectName" not in df.columns:
+        df["requiredProjectName"] = ""
+
     return df
 
 
 @st.cache_data(show_spinner=True)
+
 def load_powerplant_data() -> pd.DataFrame:
     """
     Load TIPowerPlantTemplate.json from the Terra Invicta game files (or local folder)
@@ -624,7 +628,7 @@ def load_powerplant_data() -> pd.DataFrame:
 
     df = pd.DataFrame(data)
 
-    for col in ("friendlyName", "dataName", "powerPlantClass", "generalUse"):
+    for col in ("friendlyName", "dataName", "powerPlantClass", "generalUse", "requiredProjectName"):
         if col in df.columns:
             df[col] = df[col].astype(str).fillna("").str.strip()
 
@@ -654,7 +658,128 @@ def load_powerplant_data() -> pd.DataFrame:
     else:
         df["generalUse_bool"] = True
 
+    if "requiredProjectName" not in df.columns:
+        df["requiredProjectName"] = ""
+
     return df
+
+
+
+@st.cache_data(show_spinner=True)
+def load_project_data() -> pd.DataFrame:
+    """
+    Load TIProjectTemplate.json from the Terra Invicta game files (or local folder)
+    and return a DataFrame with at least dataName and researchCost.
+    """
+    path = _find_template_file(PROJECT_JSON_FILENAME)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    df = pd.DataFrame(data)
+
+    # Normalize name fields
+    for col in ("friendlyName", "dataName"):
+        if col in df.columns:
+            df[col] = df[col].astype(str).fillna("").str.strip()
+
+    # Ensure researchCost exists as numeric
+    if "researchCost" in df.columns:
+        df["researchCost"] = pd.to_numeric(df["researchCost"], errors="coerce").fillna(0.0)
+    else:
+        df["researchCost"] = 0.0
+
+    return df
+
+
+def build_project_graph(project_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+    """
+    Build a dependency graph of projects from TIProjectTemplate.
+
+    Each node is keyed by dataName and has:
+      - cost: researchCost
+      - prereqs: list of prerequisite project dataNames
+
+    The main prerequisite field is 'prereqs' (a list).
+    In addition, any fields starting with 'altPrereq' that contain
+    a non-empty string are treated as alternative prerequisites.
+    """
+    graph: Dict[str, Dict[str, Any]] = {}
+
+    for _, row in project_df.iterrows():
+        pid = str(row.get("dataName", "")).strip()
+        if not pid:
+            continue
+
+        cost = float(row.get("researchCost", 0.0))
+
+        prereqs: List[str] = []
+
+        raw_prereqs = row.get("prereqs")
+        if isinstance(raw_prereqs, list):
+            for v in raw_prereqs:
+                if v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    prereqs.append(s)
+        elif isinstance(raw_prereqs, str):
+            s = raw_prereqs.strip()
+            if s:
+                prereqs.append(s)
+
+        for col in row.index:
+            if not isinstance(col, str):
+                continue
+            if not col.startswith("altPrereq"):
+                continue
+            val = row.get(col)
+            if isinstance(val, str):
+                s = val.strip()
+                if s:
+                    prereqs.append(s)
+
+        prereqs = list({p for p in prereqs if p})
+
+        graph[pid] = {
+            "cost": cost,
+            "prereqs": prereqs,
+        }
+
+    return graph
+
+
+def compute_total_project_costs(project_graph: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
+    """
+    Given a project dependency graph, compute total research cost for each project
+    including all prerequisite projects recursively (no double-counting).
+    """
+    memo: Dict[str, float] = {}
+
+    def dfs(pid: str, visiting: set) -> float:
+        if pid in memo:
+            return memo[pid]
+        if pid not in project_graph:
+            memo[pid] = 0.0
+            return 0.0
+        if pid in visiting:
+            # Cycle detected; avoid infinite recursion
+            return 0.0
+
+        node = project_graph[pid]
+        total = float(node.get("cost", 0.0))
+        new_visiting = set(visiting)
+        new_visiting.add(pid)
+
+        for pre in node.get("prereqs", []):
+            total += dfs(pre, new_visiting)
+
+        memo[pid] = total
+        return total
+
+    for pid in project_graph.keys():
+        dfs(pid, set())
+
+    return memo
 
 
 def find_backup_power_column(df: pd.DataFrame) -> Optional[str]:
@@ -1007,12 +1132,14 @@ def drive_uses_scarce(row: pd.Series, abundance: Dict[str, bool]) -> bool:
     return False
 
 
+
 def build_drive_features(
     df: pd.DataFrame,
     abundance: Dict[str, bool],
     backup_col: Optional[str],
     req_pp_col: Optional[str],
     fuel_weights: Dict[str, float],
+    project_total_costs: Dict[str, float],
 ) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
 
@@ -1057,6 +1184,9 @@ def build_drive_features(
         if not req_pp_val:
             req_pp_val = "Any Reactor"
 
+        proj_name = str(row.get("requiredProjectName", "")).strip()
+        total_proj_cost = project_total_costs.get(proj_name, 0.0)
+
         rows.append(
             {
                 "Name": name,
@@ -1074,15 +1204,21 @@ def build_drive_features(
                 "Uses Scarce Propellant": scarce,
                 "Required Power Plant": req_pp_val,
                 "Expensive Fuel Score": exp_score,
+                "Unlock Project": proj_name,
+                "Unlock Total Research Cost": total_proj_cost,
             }
         )
 
     return pd.DataFrame(rows)
 
 
-def build_pp_features(df: pd.DataFrame) -> pd.DataFrame:
+
+def build_pp_features(df: pd.DataFrame, project_total_costs: Dict[str, float]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for _, row in df.iterrows():
+        proj_name = str(row.get("requiredProjectName", "")).strip()
+        total_proj_cost = project_total_costs.get(proj_name, 0.0)
+
         rows.append(
             {
                 "Name": row["DisplayName"],
@@ -1092,61 +1228,14 @@ def build_pp_features(df: pd.DataFrame) -> pd.DataFrame:
                 "Efficiency": float(row.get("efficiency", 0.0)),
                 "Crew": float(row.get("crew", 0.0)),
                 "General Use": bool(row.get("generalUse_bool", True)),
+                "Unlock Project": proj_name,
+                "Unlock Total Research Cost": total_proj_cost,
             }
         )
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------------------------
-# Dominance / obsolescence logic
-# ---------------------------------------------------------------------------
-
-def dominates_drive(
-    a: pd.Series,
-    b: pd.Series,
-    care_backup: bool,
-    ignore_intraclass: bool,
-    class_col: str = "FamilyName",
-) -> bool:
-    if ignore_intraclass and (class_col in a.index) and (class_col in b.index):
-        if a[class_col] == b[class_col]:
-            return False
-
-    if a["Uses Scarce Propellant"] and not b["Uses Scarce Propellant"]:
-        return False
-
-    ge_dims = [
-        a["Thrust (N)"] >= b["Thrust (N)"],
-        a["Exhaust Velocity (km/s)"] >= b["Exhaust Velocity (km/s)"],
-        a["Power Use Efficiency"] >= b["Power Use Efficiency"],
-    ]
-    le_dims = [
-        a["Drive Mass (tons)"] <= b["Drive Mass (tons)"],
-    ]
-
-    if care_backup:
-        if (not a["Has Idle Backup"]) and b["Has Idle Backup"]:
-            return False
-        ge_dims.append(int(a["Has Idle Backup"]) >= int(b["Has Idle Backup"]))
-
-    if not all(ge_dims) or not all(le_dims):
-        return False
-
-    strict_better = (
-        (a["Thrust (N)"] > b["Thrust (N)"])
-        or (a["Exhaust Velocity (km/s)"] > b["Exhaust Velocity (km/s)"])
-        or (a["Power Use Efficiency"] > b["Power Use Efficiency"])
-        or (a["Drive Mass (tons)"] < b["Drive Mass (tons)"])
-    )
-
-    if care_backup and a["Has Idle Backup"] and not b["Has Idle Backup"]:
-        strict_better = True
-
-    if (not a["Uses Scarce Propellant"]) and b["Uses Scarce Propellant"]:
-        strict_better = True
-
-    return strict_better
-
+# ---------------------------------
 
 def annotate_drive_obsolescence(
     feat_df: pd.DataFrame,
@@ -1176,6 +1265,23 @@ def annotate_drive_obsolescence(
     out["Obsolete"] = obsolete_flags
     out["Dominates (count)"] = dominates_count
     out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
+
+    # Domination Efficiency = Unlock Total Research Cost / Dominates (count)
+    if "Unlock Total Research Cost" in feat_df.columns:
+        unlock_costs = feat_df["Unlock Total Research Cost"].tolist()
+        dom_eff: List[Optional[float]] = []
+        for idx in range(n):
+            count = dominates_count[idx]
+            cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
+            if count > 0 and cost is not None:
+                try:
+                    dom_eff.append(float(cost) / float(count))
+                except ZeroDivisionError:
+                    dom_eff.append(None)
+            else:
+                dom_eff.append(None)
+        out["Domination Efficiency"] = dom_eff
+
     return out
 
 
@@ -1207,6 +1313,7 @@ def dominates_pp(a: pd.Series, b: pd.Series, care_crew: bool) -> bool:
     return strict_better
 
 
+
 def annotate_pp_obsolescence(feat_df: pd.DataFrame, care_crew: bool) -> pd.DataFrame:
     names = feat_df["Name"].tolist()
     n = len(feat_df)
@@ -1230,6 +1337,23 @@ def annotate_pp_obsolescence(feat_df: pd.DataFrame, care_crew: bool) -> pd.DataF
     out["Obsolete"] = obsolete_flags
     out["Dominates (count)"] = dominates_count
     out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
+
+    # Domination Efficiency = Unlock Total Research Cost / Dominates (count)
+    if "Unlock Total Research Cost" in feat_df.columns:
+        unlock_costs = feat_df["Unlock Total Research Cost"].tolist()
+        dom_eff: List[Optional[float]] = []
+        for idx in range(n):
+            count = dominates_count[idx]
+            cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
+            if count > 0 and cost is not None:
+                try:
+                    dom_eff.append(float(cost) / float(count))
+                except ZeroDivisionError:
+                    dom_eff.append(None)
+            else:
+                dom_eff.append(None)
+        out["Domination Efficiency"] = dom_eff
+
     return out
 
 
@@ -1725,6 +1849,10 @@ def main():
     try:
         drive_raw = load_drive_data()
         pp_raw = load_powerplant_data()
+        project_raw = load_project_data()
+
+        project_graph = build_project_graph(project_raw)
+        project_total_costs = compute_total_project_costs(project_graph)
     except Exception as e:
         st.error(
             "Failed to load Terra Invicta data from the game JSON files.\n\n"
@@ -2298,6 +2426,7 @@ def main():
             backup_col=find_backup_power_column(drive_raw),
             req_pp_col=find_drive_required_pp_column(drive_raw, pp_raw),
             fuel_weights=fuel_weights,
+            project_total_costs=project_total_costs,
         )
         drive_feat = annotate_drive_obsolescence(
             drive_feat, care_backup, ignore_intraclass, class_col="FamilyName"
@@ -2309,7 +2438,7 @@ def main():
     if pp_filtered.empty:
         pp_feat = None
     else:
-        pp_feat = build_pp_features(pp_filtered)
+        pp_feat = build_pp_features(pp_filtered, project_total_costs=project_total_costs)
         pp_feat = annotate_pp_obsolescence(pp_feat, care_crew=care_crew)
 
     # -----------------------------------------------------------------------
