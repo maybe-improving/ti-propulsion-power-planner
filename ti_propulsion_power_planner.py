@@ -45,7 +45,7 @@ Streamlit app – JSON-from-game-data version.
         - Propellant Mass (tons)
         - Result Delta-v (km/s)
         - Result Accel (g or milli-g, based on display option)
-        - Max Feasible Payload (tons)
+        - Additional Possible Payload (tons)
 
 New in this version:
 - Loads drives & reactors from the Terra Invicta game JSON files
@@ -333,7 +333,7 @@ HELP_HTML = """<!DOCTYPE html>
     <li>Propellant Mass (tons)</li>
     <li>Result Delta-v (km/s)</li>
     <li>Result Acceleration (g or milli-g)</li>
-    <li>Max Feasible Payload (tons) — analytic upper bound for the mission</li>
+    <li>Additional Possible Payload (tons) — how much more payload can be added beyond the minimum</li>
   </ul>
 
   <h2>Tips &amp; Best Practices</h2>
@@ -1625,6 +1625,8 @@ def mission_feasibility_search(
 
         if best_solution is not None:
             payload_sol, prop_sol, _, dv_sol, accel_sol = best_solution
+            # Calculate additional payload possible beyond the minimum requested
+            additional_payload = mp_max - payload_min if mp_max > payload_min else 0.0
             results.append(
                 {
                     "Drive": row["Drive"],
@@ -1633,7 +1635,7 @@ def mission_feasibility_search(
                     "Propellant Mass (tons)": prop_sol,
                     "Result Delta-v (km/s)": dv_sol,
                     "Result Accel (g)": accel_sol,
-                    "Max Feasible Payload (tons)": mp_max,
+                    "Additional Possible Payload (tons)": additional_payload,
                 }
             )
 
