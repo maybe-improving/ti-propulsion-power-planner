@@ -21,10 +21,14 @@ https://ti-propulsion-power-planner.streamlit.app
 ## Features
 
 - **Local-only data loading**  
-  Uses two local HTML files (saved copies of the Terra Invicta wiki tables):
-  - `TIDriveTemplate.html` – drives  
-  - `TIPowerPlantTemplate.html` – power plants (reactors)  
-  No live web scraping from the wiki at runtime.
+  Uses Terra Invicta **JSON template files** (from the game install) with no network access:
+  - `TIDriveTemplate.json` – drives
+  - `TIPowerPlantTemplate.json` – power plants (reactors)
+  - `TIProjectTemplate.json` – research projects (used for unlock cost + tech suggestions)
+  The app searches for templates in this order:
+  1) `TI_TEMPLATES_DIR` environment variable (recommended)
+  2) Default Steam install path (Windows)
+  3) Current working directory (next to the script)
 
 - **Drive obsolescence analysis**
   - Unlock drives by **family** (e.g. “Tungsten Resistojet” → all x1..x6 variants).
@@ -67,6 +71,7 @@ https://ti-propulsion-power-planner.streamlit.app
     - Total Wet Mass (tons)  
     - Power Ratio (PP/Drive)  
     - Reactor Enough Power? (reactor output vs drive power usage)
+  - Note: the drive power requirement is modeled as **required input power**, which accounts for drive efficiency.
 
 - **Valid drive + power plant combinations**
   - Considers only:
@@ -111,6 +116,7 @@ https://ti-propulsion-power-planner.streamlit.app
     - Optional obsolescence preferences  
     - Reference masses  
     - Fuel cost weights
+    - Tech path suggestion settings (max steps, top-N, hide-zero)
   - **Upload profile JSON**: restores those settings.
   - Upload is validated:
     - Size-bounded to a small, computed max profile size  
@@ -128,17 +134,24 @@ https://ti-propulsion-power-planner.streamlit.app
 
 ### 1. Clone the repository
 
-    git clone https://github.com/<your-username>/ti-propulsion-power-planner.git
+  git clone https://github.com/maybe-improving/ti-propulsion-power-planner.git
     cd ti-propulsion-power-planner
 
-### 2. Add the Terra Invicta data HTMLs
+### 2. Point the app at Terra Invicta Templates
 
-Place these files in the repo root (same folder as the Python script):
+The app needs these game JSON templates:
 
-- `TIDriveTemplate.html`  
-- `TIPowerPlantTemplate.html`
+- `TIDriveTemplate.json`
+- `TIPowerPlantTemplate.json`
+- `TIProjectTemplate.json`
 
-They should be saved copies of the relevant Terra Invicta wiki tables.
+Recommended: set an environment variable to your Terra Invicta `Templates` folder:
+
+**Windows (PowerShell):**
+
+    $env:TI_TEMPLATES_DIR = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Terra Invicta\\TerraInvicta_Data\\StreamingAssets\\Templates"
+
+Alternatively, copy the JSON files into the repo root (next to `ti_propulsion_power_planner.py`).
 
 ### 3. Install dependencies
 
@@ -219,6 +232,13 @@ Each tab has:
 - Column visibility checkboxes on the left  
 - Autosizing tables on the right  
 
+Each tab also includes a **Tech path suggestions** table (under the obsolescence table) that proposes reachable drives/reactors to research next. Suggestions are ranked by dominance impact per research cost.
+
+Key suggestion metrics:
+
+- **New Dominances**: how many *additional* items the suggestion would newly dominate, excluding items already dominated by at least one currently unlocked drive/reactor.
+- **New Domination Efficiency**: `(New Dominances × 1000) / Unlock Total Research Cost`.
+
 ### 4. Valid Drive + Power Plant combinations
 
 Below the tabs:
@@ -231,6 +251,8 @@ Below the tabs:
   - Ref Delta-v, Ref Cruise/Combat Accel, Power Ratio  
   - Total Wet Mass  
   - Fuel cost score and other metrics
+
+Power note: in the combos table, **Drive Power (GW)** is based on the drive’s **required input power**, not just ideal exhaust power.
 - Combo-level dominance can be hidden via the sidebar toggle.
 - Column visibility checkboxes for this table as well.
 
