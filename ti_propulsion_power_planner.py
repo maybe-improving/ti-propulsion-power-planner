@@ -1569,19 +1569,25 @@ def mission_feasibility_search(
         if t_eff <= 0.0:
             continue
 
+        # Calculate mass ratio needed for target delta-v
+        # m_wet/m_dry = exp(dv/ev)
         try:
-            k_dv = math.exp(dv_target_kps / ev_kps) - 1.0
+            mass_ratio = math.exp(dv_target_kps / ev_kps)
         except OverflowError:
-            k_dv = float("inf")
+            mass_ratio = float("inf")
 
-        if k_dv < 0.0:
-            k_dv = 0.0
-
-        M_max = t_eff / (accel_target_g * 1000.0 * g_m_s2) if accel_target_g > 0.0 else 0.0
-        if M_max <= 0.0 or not math.isfinite(k_dv):
+        # Max wet mass from acceleration constraint: m_wet = thrust / (accel * g)
+        m_wet_max_accel = t_eff / (accel_target_g * 1000.0 * g_m_s2) if accel_target_g > 0.0 else 0.0
+        
+        # Calculate max payload analytically
+        # m_wet = m_dry * mass_ratio = (m0 + mp) * mass_ratio
+        # m_wet <= m_wet_max_accel
+        # (m0 + mp) * mass_ratio <= m_wet_max_accel
+        # mp <= m_wet_max_accel / mass_ratio - m0
+        if m_wet_max_accel <= 0.0 or not math.isfinite(mass_ratio) or mass_ratio <= 1.0:
             mp_max = 0.0
         else:
-            mp_max = M_max / (1.0 + k_dv) - m0
+            mp_max = m_wet_max_accel / mass_ratio - m0
             if mp_max < 0.0:
                 mp_max = 0.0
 
