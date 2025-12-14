@@ -1527,20 +1527,6 @@ def mission_feasibility_search(
     if prop_max < prop_min:
         prop_min, prop_max = prop_max, prop_min
 
-    if payload_steps < 2:
-        payload_steps = 2
-    if prop_steps < 2:
-        prop_steps = 2
-
-    payload_candidates = [
-        payload_min + i * (payload_max - payload_min) / (payload_steps - 1)
-        for i in range(payload_steps)
-    ]
-    prop_candidates = [
-        prop_min + i * (prop_max - prop_min) / (prop_steps - 1)
-        for i in range(prop_steps)
-    ]
-
     g_m_s2 = 9.81
     results: List[Dict[str, Any]] = []
 
@@ -1569,95 +1555,62 @@ def mission_feasibility_search(
         if t_eff <= 0.0:
             continue
 
-        # Calculate mass ratio needed for target delta-v
-        # m_wet/m_dry = exp(dv/ev)
+        # Analytic solution (no grid search)
         try:
             mass_ratio = math.exp(dv_target_kps / ev_kps)
         except OverflowError:
             mass_ratio = float("inf")
 
-        # Max wet mass from acceleration constraint: m_wet = thrust / (accel * g)
-        m_wet_max_accel = t_eff / (accel_target_g * 1000.0 * g_m_s2) if accel_target_g > 0.0 else 0.0
-        
-        # Calculate max payload analytically
-        # m_wet = m_dry * mass_ratio = (m0 + mp) * mass_ratio
-        # m_wet <= m_wet_max_accel
-        # (m0 + mp) * mass_ratio <= m_wet_max_accel
-        # mp <= m_wet_max_accel / mass_ratio - m0
-        if m_wet_max_accel <= 0.0 or not math.isfinite(mass_ratio) or mass_ratio <= 1.0:
-            mp_max = 0.0
-        else:
-            mp_max = m_wet_max_accel / mass_ratio - m0
-            if mp_max < 0.0:
-                mp_max = 0.0
+        if not math.isfinite(mass_ratio) or mass_ratio <= 1.0:
+            continue
 
-        best_solution = None
+        # Accel constraint: m_wet = (m0 + Mp) * mass_ratio <= thrust / (a*g)
+        m_wet_max_accel = t_eff / (accel_target_g * 1000.0 * g_m_s2)
+        if m_wet_max_accel <= 0.0:
+            continue
+        mp_max_accel = m_wet_max_accel / mass_ratio - m0
 
-        for Mp in payload_candidates:
-            m_dry_base = m0 + Mp
+        # Propellant upper bound constraint: prop_needed = (m0 + Mp) * (mass_ratio - 1) <= prop_max
+        mp_max_prop = prop_max / (mass_ratio - 1.0) - m0 if prop_max > 0 else mp_max_accel
 
-            m_wet_max = m_dry_base + prop_max
-            if m_wet_max <= m_dry_base:
-                continue
-            dv_max = ev_kps * math.log(m_wet_max / m_dry_base)
-            if dv_max < dv_target_kps:
-                continue
+        # Overall max payload allowed by accel and prop bounds
+        mp_max_feasible = min(mp_max_accel, mp_max_prop)
+        if mp_max_feasible < payload_min:
+            continue
 
-            for Mf in prop_candidates:
-                if Mf <= 0.0:
-                    continue
+        # Use requested minimum payload if feasible; otherwise cap at mp_max_feasible
+        payload_sol = payload_min
 
-                m_wet = m_dry_base + Mf
+        # Compute required propellant for this payload
+        prop_sol = (m0 + payload_sol) * (mass_ratio - 1.0)
 
-                if m_wet <= m_dry_base:
-                    continue
-                dv = ev_kps * math.log(m_wet / m_dry_base)
-                if dv < dv_target_kps:
-                    continue
+        # Enforce propellant bounds
+        if prop_sol < prop_min or prop_sol > prop_max:
+            continue
 
-                accel_g = t_eff / (m_wet * 1000.0 * g_m_s2)
-                if accel_g < accel_target_g:
-                    continue
+        # Compute actual wet mass, accel, dv
+        m_wet = m0 + payload_sol + prop_sol
+        accel_sol = t_eff / (m_wet * 1000.0 * g_m_s2)
+        if accel_sol < accel_target_g:
+            continue
+        dv_sol = dv_target_kps  # by construction
 
-                total_wet = m_wet
-                if best_solution is None or total_wet < best_solution[2]:
-                    best_solution = (Mp, Mf, total_wet, dv, accel_g)
+        # Additional payload possible beyond what we're already carrying
+        additional_payload = mp_max_feasible - payload_sol
+        if additional_payload < 0.0:
+            additional_payload = 0.0
 
-        if best_solution is not None:
-            payload_sol, prop_sol, _, dv_sol, accel_sol = best_solution
-            
-            # Calculate additional payload possible with the ACTUAL propellant amount found
-            # Constraint 1 (acceleration): m0 + mp + prop_sol <= thrust / (accel_target * g)
-            mp_max_accel = (t_eff / (accel_target_g * 1000.0 * g_m_s2)) - m0 - prop_sol
-            
-            # Constraint 2 (delta-v): prop_sol >= (m0 + mp) * (exp(dv/ev) - 1)
-            # Solving for mp: mp <= prop_sol / (mass_ratio - 1) - m0
-            try:
-                mass_ratio = math.exp(dv_target_kps / ev_kps)
-                if mass_ratio > 1.0:
-                    mp_max_dv = prop_sol / (mass_ratio - 1.0) - m0
-                else:
-                    mp_max_dv = 0.0
-            except (OverflowError, ZeroDivisionError):
-                mp_max_dv = 0.0
-            
-            # Maximum payload is limited by both constraints
-            mp_max_constrained = min(mp_max_accel, mp_max_dv) if mp_max_accel > 0 and mp_max_dv > 0 else 0.0
-            
-            # Additional payload beyond what we're already using
-            additional_payload = mp_max_constrained - payload_sol if mp_max_constrained > payload_sol else 0.0
-            
-            results.append(
-                {
-                    "Drive": row["Drive"],
-                    "Power Plant": row["Power Plant"],
-                    "Payload Mass (tons)": payload_sol,
-                    "Propellant Mass (tons)": prop_sol,
-                    "Result Delta-v (km/s)": dv_sol,
-                    "Result Accel (g)": accel_sol,
-                    "Additional Possible Payload (tons)": additional_payload,
-                }
-            )
+        results.append(
+            {
+                "Drive": row["Drive"],
+                "Power Plant": row["Power Plant"],
+                "Payload Mass (tons)": payload_sol,
+                "Propellant Mass (tons)": prop_sol,
+                "Result Delta-v (km/s)": dv_sol,
+                "Result Accel (g)": accel_sol,
+                "Additional Possible Payload (tons)": additional_payload,
+            }
+        )
 
     if not results:
         return pd.DataFrame()
