@@ -2,7 +2,16 @@
 Terra Invicta Propulsion and Power Planner
 ==========================================
 
-Complete Streamlit app.
+Streamlit app – JSON-from-game-data version.
+
+- Reads drive & reactor data directly from Terra Invicta game files:
+    - TIDriveTemplate.json
+    - TIPowerPlantTemplate.json
+- By default it looks for those files in:
+    1) The folder pointed to by the TI_TEMPLATES_DIR environment variable, or
+    2) The default Steam path on Windows:
+       C:\\Program Files (x86)\\Steam\\steamapps\\common\\Terra Invicta\\TerraInvicta_Data\\StreamingAssets\\Templates
+    3) The current working directory (next to this script).
 
 - Starts with NO drives or reactors unlocked.
 - Unlock drives by FAMILY (e.g. "Tungsten Resistojet" → all x1..x6 variants).
@@ -39,7 +48,9 @@ Complete Streamlit app.
         - Max Feasible Payload (tons)
 
 New in this version:
-- Option in Global Settings to display accelerations in milli-g instead of g.
+- Loads drives & reactors from the Terra Invicta game JSON files
+  (TIDriveTemplate.json, TIPowerPlantTemplate.json) instead of wiki HTML.
+- Option in Global Settings to display accelerations in milligees instead of g.
 - One-time JS tweak to set a wide default sidebar width but keep it user‑adjustable.
 - Profile upload protection: do not re-apply the same uploaded profile every rerun.
 - New columns:
@@ -47,10 +58,8 @@ New in this version:
     - Power plants: "Dominates (count)" – how many other reactors each reactor dominates.
 """
 
-import io
 import os
 import re
-import html as html_lib
 import textwrap
 import json
 import hashlib
@@ -60,6 +69,66 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import streamlit as st
 import altair as alt
+
+
+# ---------------------------------------------------------------------------
+# Game data location
+# ---------------------------------------------------------------------------
+
+# Default Steam install path on Windows. If you use a different platform or
+# custom location, either:
+#   - Set the TI_TEMPLATES_DIR environment variable to the folder that actually
+#     contains TIDriveTemplate.json and TIPowerPlantTemplate.json, OR
+#   - Edit DEFAULT_GAME_DIR below.
+DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta"
+
+DRIVE_JSON_FILENAME = "TIDriveTemplate.json"
+PP_JSON_FILENAME = "TIPowerPlantTemplate.json"
+
+
+def _find_template_file(filename: str) -> str:
+    """
+    Try to locate a given Terra Invicta templates JSON file.
+
+    Search order:
+      1) TI_TEMPLATES_DIR environment variable (if set)
+      2) Default Steam path on Windows
+      3) Current working directory (file next to the script)
+
+    Returns:
+        Full filesystem path if found, or raises RuntimeError otherwise.
+    """
+    candidates: List[str] = []
+
+    env_dir = os.environ.get("TI_TEMPLATES_DIR", "").strip()
+    if env_dir:
+        candidates.append(os.path.join(env_dir, filename))
+
+    default_templates_dir = os.path.join(
+        DEFAULT_GAME_DIR,
+        "TerraInvicta_Data",
+        "StreamingAssets",
+        "Templates",
+    )
+    candidates.append(os.path.join(default_templates_dir, filename))
+
+    # Fallback: same folder as this script / current working dir
+    candidates.append(os.path.join(os.getcwd(), filename))
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    raise RuntimeError(
+        f"Could not find {filename!r}.\n\n"
+        "The app looks in:\n"
+        "  1) TI_TEMPLATES_DIR environment variable (if set)\n"
+        "  2) Default Steam path on Windows\n"
+        "  3) Current working directory\n\n"
+        "Set TI_TEMPLATES_DIR to your 'Templates' folder, or copy the JSON "
+        "next to this script."
+    )
+
 
 # ---------------------------------------------------------------------------
 # Help file HTML (downloadable)
@@ -118,15 +187,29 @@ HELP_HTML = """<!DOCTYPE html>
   <main>
     <h2>1. Data &amp; requirements</h2>
     <p>
-      The app reads two local HTML files, which are saved copies of the Terra Invicta wiki tables:
+      The app reads two local JSON files from your Terra Invicta installation:
     </p>
     <ul>
-      <li><code>TIDriveTemplate.html</code> – drive data</li>
-      <li><code>TIPowerPlantTemplate.html</code> – power plant (reactor) data</li>
+      <li><code>TIDriveTemplate.json</code> – drive data</li>
+      <li><code>TIPowerPlantTemplate.json</code> – power plant (reactor) data</li>
     </ul>
     <p>
-      Place these files next to the Python script before running the app.
-      The app does not call out to the internet.
+      It looks for these files in the following locations:
+    </p>
+    <ol>
+      <li>The folder specified by the <code>TI_TEMPLATES_DIR</code> environment variable (if set)</li>
+      <li>
+        The default Steam path on Windows:<br />
+        <code>C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta\TerraInvicta_Data\StreamingAssets\Templates</code>
+      </li>
+      <li>
+        The current working directory (next to the app script), if you copy the
+        JSON files there manually
+      </li>
+    </ol>
+    <p>
+      If the app cannot find the JSON files, it will show a clear error message
+      with hints on how to fix the path.
     </p>
 
     <h2>2. Sidebar: help &amp; profiles</h2>
@@ -404,11 +487,8 @@ HELP_HTML = """<!DOCTYPE html>
 """
 
 # ---------------------------------------------------------------------------
-# Config: local HTML fallbacks (no web fetch)
+# Config / constants
 # ---------------------------------------------------------------------------
-
-LOCAL_DRIVE_HTML = "TIDriveTemplate.html"
-LOCAL_PP_HTML = "TIPowerPlantTemplate.html"
 
 DEFAULT_REF_PAYLOAD_TONS = 1000.0
 DEFAULT_REF_PROPELLANT_TONS = 1000.0
@@ -455,43 +535,6 @@ PP_BUILD_RESOURCE_COLS = {
 
 BACKUP_MODE_RAW_VALUES = {"Always", "DriveIdle", "DriveActive", "Never"}
 
-# ---------------------------------------------------------------------------
-# CSV extraction helpers (local-only)
-# ---------------------------------------------------------------------------
-
-def _extract_csv_from_html(html_text: str, header_prefix: str = "dataName,") -> str:
-    text = re.sub(r"<[^>]+>", "", html_text)
-    text = html_lib.unescape(text)
-
-    start = text.find(header_prefix)
-    if start == -1:
-        raise ValueError(
-            f"Could not find CSV header starting with '{header_prefix}' "
-            "in local HTML file."
-        )
-
-    end_marker = "Retrieved from"
-    end = text.find(end_marker, start)
-    if end == -1:
-        end = len(text)
-
-    csv_text = text[start:end].strip()
-    return csv_text
-
-
-def _fetch_csv_from_local_html(local_html_path: str) -> pd.DataFrame:
-    if not os.path.exists(local_html_path):
-        raise RuntimeError(
-            f"Local HTML file {local_html_path!r} does not exist. "
-            "Place TIDriveTemplate.html and TIPowerPlantTemplate.html next to this script."
-        )
-
-    with open(local_html_path, encoding="utf-8") as f:
-        html_text = f.read()
-
-    csv_text = _extract_csv_from_html(html_text, header_prefix="dataName,")
-    return pd.read_csv(io.StringIO(csv_text))
-
 
 # ---------------------------------------------------------------------------
 # Data loading & cleanup
@@ -505,7 +548,15 @@ def _compute_drive_family_name(display_name: str) -> str:
 
 @st.cache_data(show_spinner=True)
 def load_drive_data() -> pd.DataFrame:
-    df = _fetch_csv_from_local_html(LOCAL_DRIVE_HTML)
+    """
+    Load TIDriveTemplate.json from the Terra Invicta game files (or local folder)
+    and convert to a DataFrame with the columns expected by the rest of the app.
+    """
+    path = _find_template_file(DRIVE_JSON_FILENAME)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    df = pd.DataFrame(data)
 
     for col in ("friendlyName", "dataName", "propellant"):
         if col in df.columns:
@@ -542,7 +593,15 @@ def load_drive_data() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=True)
 def load_powerplant_data() -> pd.DataFrame:
-    df = _fetch_csv_from_local_html(LOCAL_PP_HTML)
+    """
+    Load TIPowerPlantTemplate.json from the Terra Invicta game files (or local folder)
+    and convert to a DataFrame with the columns expected by the rest of the app.
+    """
+    path = _find_template_file(PP_JSON_FILENAME)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    df = pd.DataFrame(data)
 
     for col in ("friendlyName", "dataName", "powerPlantClass", "generalUse"):
         if col in df.columns:
@@ -1626,6 +1685,7 @@ def main():
     st.markdown(
         textwrap.dedent(
             """
+            - Reads **TIDriveTemplate.json** and **TIPowerPlantTemplate.json** from your Terra Invicta install  
             - Starts with **no drives or reactors unlocked**  
             - Unlock **drive families** (e.g. Tungsten Resistojet → all x1..x6)  
             - Obsolescence respects **resource scarcity**, optional
@@ -1646,9 +1706,8 @@ def main():
         pp_raw = load_powerplant_data()
     except Exception as e:
         st.error(
-            "Failed to load Terra Invicta data from local HTML.\n\n"
-            "Check that `TIDriveTemplate.html` and `TIPowerPlantTemplate.html` "
-            "are present next to this script.\n\n"
+            "Failed to load Terra Invicta data from the game JSON files.\n\n"
+            "The app needs TIDriveTemplate.json and TIPowerPlantTemplate.json.\n\n"
             f"Details:\n{e}"
         )
         return
@@ -1847,7 +1906,7 @@ def main():
 
     st.sidebar.subheader("Optional obsolescence parameters")
 
-    if backup_col:
+    if find_backup_power_column(drive_raw):
         care_backup = st.sidebar.checkbox(
             "Care about drives that provide backup power when idle",
             value=st.session_state.get("care_backup", True),
@@ -2092,8 +2151,9 @@ def main():
     )
 
     st.sidebar.caption(
-        "Use the buttons above to download/upload your profile JSON. "
-        "Data is read locally from TIDriveTemplate.html and TIPowerPlantTemplate.html."
+        "Game data is read from TIDriveTemplate.json and TIPowerPlantTemplate.json "
+        "in your Terra Invicta installation (see help for search order). "
+        "Use the buttons above to download/upload your profile JSON."
     )
 
     # -----------------------------------------------------------------------
@@ -2214,8 +2274,8 @@ def main():
         drive_feat = build_drive_features(
             drive_filtered,
             resource_abundance,
-            backup_col=backup_col,
-            req_pp_col=req_pp_col,
+            backup_col=find_backup_power_column(drive_raw),
+            req_pp_col=find_drive_required_pp_column(drive_raw, pp_raw),
             fuel_weights=fuel_weights,
         )
         drive_feat = annotate_drive_obsolescence(
@@ -2544,11 +2604,10 @@ def main():
             else:
                 labels = list(scatter_cols.keys())
 
-                # choose defaults
+                # choose defaults: Cruise accel on X, Delta-v on Y if available
                 default_x_label = None
                 default_y_label = None
 
-                # prefer Cruise accel on X, Delta-v on Y
                 for lbl in labels:
                     if lbl.startswith("Ref Cruise Accel"):
                         default_x_label = lbl
