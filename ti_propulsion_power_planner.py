@@ -1625,8 +1625,28 @@ def mission_feasibility_search(
 
         if best_solution is not None:
             payload_sol, prop_sol, _, dv_sol, accel_sol = best_solution
-            # Calculate additional payload possible beyond the minimum requested
-            additional_payload = mp_max - payload_min if mp_max > payload_min else 0.0
+            
+            # Calculate additional payload possible with the ACTUAL propellant amount found
+            # Constraint 1 (acceleration): m0 + mp + prop_sol <= thrust / (accel_target * g)
+            mp_max_accel = (t_eff / (accel_target_g * 1000.0 * g_m_s2)) - m0 - prop_sol
+            
+            # Constraint 2 (delta-v): prop_sol >= (m0 + mp) * (exp(dv/ev) - 1)
+            # Solving for mp: mp <= prop_sol / (mass_ratio - 1) - m0
+            try:
+                mass_ratio = math.exp(dv_target_kps / ev_kps)
+                if mass_ratio > 1.0:
+                    mp_max_dv = prop_sol / (mass_ratio - 1.0) - m0
+                else:
+                    mp_max_dv = 0.0
+            except (OverflowError, ZeroDivisionError):
+                mp_max_dv = 0.0
+            
+            # Maximum payload is limited by both constraints
+            mp_max_constrained = min(mp_max_accel, mp_max_dv) if mp_max_accel > 0 and mp_max_dv > 0 else 0.0
+            
+            # Additional payload beyond what we're already using
+            additional_payload = mp_max_constrained - payload_sol if mp_max_constrained > payload_sol else 0.0
+            
             results.append(
                 {
                     "Drive": row["Drive"],
