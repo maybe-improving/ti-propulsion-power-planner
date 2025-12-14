@@ -1428,6 +1428,9 @@ def compute_drive_tech_suggestions(
     if hide_zero and "Dominates (count)" in candidates.columns:
         candidates = candidates[candidates["Dominates (count)"] > 0]
 
+    if "Unlock Total Research Cost" in candidates.columns:
+        candidates = candidates[candidates["Unlock Total Research Cost"] >= 0]
+
     top_n = max(1, int(top_n))
 
     return _sort_suggestions(candidates).head(top_n)
@@ -1459,6 +1462,9 @@ def compute_pp_tech_suggestions(
 
     if hide_zero and "Dominates (count)" in candidates.columns:
         candidates = candidates[candidates["Dominates (count)"] > 0]
+
+    if "Unlock Total Research Cost" in candidates.columns:
+        candidates = candidates[candidates["Unlock Total Research Cost"] >= 0]
 
     top_n = max(1, int(top_n))
 
