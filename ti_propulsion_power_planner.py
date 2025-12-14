@@ -364,6 +364,12 @@ HELP_HTML = """<!DOCTYPE html>
 DEFAULT_REF_PAYLOAD_TONS = 1000.0
 DEFAULT_REF_PROPELLANT_TONS = 1000.0
 
+DEFAULT_TECH_MAX_STEPS = 3
+DEFAULT_TECH_TOP_N = 15
+DEFAULT_TECH_HIDE_ZERO = True
+MAX_TECH_MAX_STEPS = 10
+MAX_TECH_TOP_N = 200
+
 DEFAULT_FUEL_WEIGHTS = {
     "water": 1.0,
     "volatiles": 1.0,
@@ -651,6 +657,57 @@ def compute_total_project_costs(project_graph: Dict[str, Dict[str, Any]]) -> Dic
     return memo
 
 
+def infer_completed_projects_from_unlocks(
+    drive_df: pd.DataFrame,
+    pp_df: pd.DataFrame,
+    unlocked_drive_families: List[str],
+    unlocked_pp_names: List[str],
+) -> set:
+    projects: set = set()
+
+    if not drive_df.empty:
+        fam_set = set(unlocked_drive_families)
+        for _, row in drive_df.iterrows():
+            if row.get("FamilyName") in fam_set:
+                proj = str(row.get("requiredProjectName", "")).strip()
+                if proj:
+                    projects.add(proj)
+
+    if not pp_df.empty:
+        pp_set = set(unlocked_pp_names)
+        for _, row in pp_df.iterrows():
+            if row.get("DisplayName") in pp_set:
+                proj = str(row.get("requiredProjectName", "")).strip()
+                if proj:
+                    projects.add(proj)
+
+    return projects
+
+
+def compute_reachable_projects(
+    project_graph: Dict[str, Dict[str, Any]],
+    completed_projects: set,
+    max_steps: int,
+) -> set:
+    reachable = set(completed_projects)
+    steps = max(0, int(max_steps))
+
+    for _ in range(steps):
+        newly: set = set()
+        for pid, node in project_graph.items():
+            if pid in reachable:
+                continue
+            prereqs = node.get("prereqs", [])
+            if all(pre in reachable for pre in prereqs):
+                newly.add(pid)
+
+        if not newly:
+            break
+        reachable.update(newly)
+
+    return reachable
+
+
 def find_backup_power_column(df: pd.DataFrame) -> Optional[str]:
     for col in df.columns:
         series = df[col]
@@ -753,6 +810,9 @@ def apply_profile(profile: Dict[str, Any]) -> None:
     st.session_state["care_crew"] = bool(profile.get("care_crew", False))
     st.session_state["ignore_intraclass"] = bool(profile.get("ignore_intraclass", False))
     st.session_state["accel_in_milligees"] = bool(profile.get("accel_in_milligees", False))
+    st.session_state["tech_max_steps"] = int(profile.get("tech_max_steps", DEFAULT_TECH_MAX_STEPS))
+    st.session_state["tech_top_n"] = int(profile.get("tech_top_n", DEFAULT_TECH_TOP_N))
+    st.session_state["tech_hide_zero"] = bool(profile.get("tech_hide_zero", DEFAULT_TECH_HIDE_ZERO))
 
     st.session_state["ref_payload_tons"] = float(
         profile.get("ref_payload_tons", DEFAULT_REF_PAYLOAD_TONS)
@@ -814,6 +874,9 @@ def build_profile_dict() -> Dict[str, Any]:
         },
         "ignore_intraclass": bool(st.session_state.get("ignore_intraclass", False)),
         "accel_in_milligees": bool(st.session_state.get("accel_in_milligees", False)),
+        "tech_max_steps": int(st.session_state.get("tech_max_steps", DEFAULT_TECH_MAX_STEPS)),
+        "tech_top_n": int(st.session_state.get("tech_top_n", DEFAULT_TECH_TOP_N)),
+        "tech_hide_zero": bool(st.session_state.get("tech_hide_zero", DEFAULT_TECH_HIDE_ZERO)),
     }
 
 
@@ -854,6 +917,12 @@ def sanitize_profile_dict(
             return hi
         return x
 
+    def to_int(v, default: int) -> int:
+        try:
+            return int(v)
+        except Exception:
+            return default
+
     # unlocked drive families
     udf_raw = raw_profile.get("unlocked_drive_families", [])
     if not isinstance(udf_raw, list):
@@ -892,6 +961,17 @@ def sanitize_profile_dict(
     care_crew = to_bool(raw_profile.get("care_crew", False), False)
     ignore_intraclass = to_bool(raw_profile.get("ignore_intraclass", False), False)
     accel_in_milligees = to_bool(raw_profile.get("accel_in_milligees", False), False)
+    tech_max_steps = clamp(
+        float(to_int(raw_profile.get("tech_max_steps", DEFAULT_TECH_MAX_STEPS), DEFAULT_TECH_MAX_STEPS)),
+        0,
+        MAX_TECH_MAX_STEPS,
+    )
+    tech_top_n = clamp(
+        float(to_int(raw_profile.get("tech_top_n", DEFAULT_TECH_TOP_N), DEFAULT_TECH_TOP_N)),
+        1,
+        MAX_TECH_TOP_N,
+    )
+    tech_hide_zero = to_bool(raw_profile.get("tech_hide_zero", DEFAULT_TECH_HIDE_ZERO), DEFAULT_TECH_HIDE_ZERO)
 
     ref_payload_tons = clamp(
         to_float(
@@ -963,6 +1043,9 @@ def sanitize_profile_dict(
         "fuel_weights": fuel_weights,
         "ignore_intraclass": ignore_intraclass,
         "accel_in_milligees": accel_in_milligees,
+        "tech_max_steps": int(tech_max_steps),
+        "tech_top_n": int(tech_top_n),
+        "tech_hide_zero": tech_hide_zero,
     }
 
     return sanitized
@@ -1281,6 +1364,105 @@ def annotate_pp_obsolescence(feat_df: pd.DataFrame, care_crew: bool) -> pd.DataF
         out["Domination Efficiency"] = dom_eff
 
     return out
+
+
+def _sort_suggestions(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    out["__dom_eff_sort"] = (
+        out["Domination Efficiency"].fillna(-math.inf)
+        if "Domination Efficiency" in out.columns
+        else -math.inf
+    )
+    out["__dom_count_sort"] = (
+        out["Dominates (count)"].fillna(0)
+        if "Dominates (count)" in out.columns
+        else 0
+    )
+    out["__unlock_cost_sort"] = (
+        out["Unlock Total Research Cost"].replace({None: math.inf}).fillna(math.inf)
+        if "Unlock Total Research Cost" in out.columns
+        else math.inf
+    )
+
+    out = out.sort_values(
+        ["__dom_eff_sort", "__dom_count_sort", "__unlock_cost_sort"],
+        ascending=[False, False, True],
+    )
+
+    return out.drop(columns=["__dom_eff_sort", "__dom_count_sort", "__unlock_cost_sort"], errors="ignore")
+
+
+def compute_drive_tech_suggestions(
+    drive_feat_all: pd.DataFrame,
+    unlocked_drive_families: List[str],
+    reachable_projects: set,
+    care_backup: bool,
+    ignore_intraclass: bool,
+    hide_zero: bool,
+    top_n: int,
+) -> pd.DataFrame:
+    if drive_feat_all is None or drive_feat_all.empty:
+        return pd.DataFrame()
+
+    proj_series = drive_feat_all["Unlock Project"].fillna("").astype(str)
+    reachable_mask = proj_series.eq("") | proj_series.isin(reachable_projects)
+    unlocked_mask = drive_feat_all["FamilyName"].isin(unlocked_drive_families)
+    context_mask = reachable_mask | unlocked_mask
+
+    context_df = drive_feat_all[context_mask].copy()
+    annotated = annotate_drive_obsolescence(
+        context_df,
+        care_backup=care_backup,
+        ignore_intraclass=ignore_intraclass,
+        class_col="FamilyName",
+    )
+
+    candidates = annotated[
+        (~annotated["FamilyName"].isin(unlocked_drive_families))
+        & (annotated["Unlock Project"].fillna("").astype(str).eq("") | annotated["Unlock Project"].isin(reachable_projects))
+    ].copy()
+
+    if hide_zero and "Dominates (count)" in candidates.columns:
+        candidates = candidates[candidates["Dominates (count)"] > 0]
+
+    top_n = max(1, int(top_n))
+
+    return _sort_suggestions(candidates).head(top_n)
+
+
+def compute_pp_tech_suggestions(
+    pp_feat_all: pd.DataFrame,
+    unlocked_pp_names: List[str],
+    reachable_projects: set,
+    care_crew: bool,
+    hide_zero: bool,
+    top_n: int,
+) -> pd.DataFrame:
+    if pp_feat_all is None or pp_feat_all.empty:
+        return pd.DataFrame()
+
+    proj_series = pp_feat_all["Unlock Project"].fillna("").astype(str)
+    reachable_mask = proj_series.eq("") | proj_series.isin(reachable_projects)
+    unlocked_mask = pp_feat_all["Name"].isin(unlocked_pp_names)
+    context_mask = reachable_mask | unlocked_mask
+
+    context_df = pp_feat_all[context_mask].copy()
+    annotated = annotate_pp_obsolescence(context_df, care_crew=care_crew)
+
+    candidates = annotated[
+        (~annotated["Name"].isin(unlocked_pp_names))
+        & (annotated["Unlock Project"].fillna("").astype(str).eq("") | annotated["Unlock Project"].isin(reachable_projects))
+    ].copy()
+
+    if hide_zero and "Dominates (count)" in candidates.columns:
+        candidates = candidates[candidates["Dominates (count)"] > 0]
+
+    top_n = max(1, int(top_n))
+
+    return _sort_suggestions(candidates).head(top_n)
 
 
 # ---------------------------------------------------------------------------
@@ -1827,6 +2009,13 @@ def main():
     if "accel_in_milligees" not in st.session_state:
         st.session_state["accel_in_milligees"] = False
 
+    if "tech_max_steps" not in st.session_state:
+        st.session_state["tech_max_steps"] = DEFAULT_TECH_MAX_STEPS
+    if "tech_top_n" not in st.session_state:
+        st.session_state["tech_top_n"] = DEFAULT_TECH_TOP_N
+    if "tech_hide_zero" not in st.session_state:
+        st.session_state["tech_hide_zero"] = DEFAULT_TECH_HIDE_ZERO
+
     # -----------------------------------------------------------------------
     # Sidebar
     # -----------------------------------------------------------------------
@@ -1888,6 +2077,9 @@ def main():
                         },
                         "ignore_intraclass": True,
                         "accel_in_milligees": True,
+                        "tech_max_steps": MAX_TECH_MAX_STEPS,
+                        "tech_top_n": MAX_TECH_TOP_N,
+                        "tech_hide_zero": True,
                     }
                     max_profile_json = json.dumps(max_profile_for_limit, indent=2)
                     max_profile_bytes = len(max_profile_json.encode("utf-8"))
@@ -2321,32 +2513,102 @@ def main():
     # -----------------------------------------------------------------------
     # Precompute feature tables
     # -----------------------------------------------------------------------
-    unlocked_drive_families = st.session_state.unlocked_drive_families
-    drive_filtered = drive_raw[drive_raw["FamilyName"].isin(unlocked_drive_families)]
+    drive_feat_all = build_drive_features(
+        drive_raw,
+        resource_abundance,
+        backup_col=backup_col,
+        req_pp_col=req_pp_col,
+        fuel_weights=fuel_weights,
+        project_total_costs=project_total_costs,
+    )
 
-    if drive_filtered.empty:
+    unlocked_drive_families = st.session_state.unlocked_drive_families
+    if drive_feat_all.empty or not unlocked_drive_families:
         drive_feat = None
     else:
-        drive_feat = build_drive_features(
-            drive_filtered,
-            resource_abundance,
-            backup_col=find_backup_power_column(drive_raw),
-            req_pp_col=find_drive_required_pp_column(drive_raw, pp_raw),
-            fuel_weights=fuel_weights,
-            project_total_costs=project_total_costs,
-        )
         drive_feat = annotate_drive_obsolescence(
-            drive_feat, care_backup, ignore_intraclass, class_col="FamilyName"
+            drive_feat_all[drive_feat_all["FamilyName"].isin(unlocked_drive_families)],
+            care_backup,
+            ignore_intraclass,
+            class_col="FamilyName",
         )
+
+    pp_feat_all = build_pp_features(pp_raw, project_total_costs=project_total_costs)
 
     unlocked_pp_names = st.session_state.unlocked_pp
-    pp_filtered = pp_raw[pp_raw["DisplayName"].isin(unlocked_pp_names)]
-
-    if pp_filtered.empty:
+    if pp_feat_all.empty or not unlocked_pp_names:
         pp_feat = None
     else:
-        pp_feat = build_pp_features(pp_filtered, project_total_costs=project_total_costs)
-        pp_feat = annotate_pp_obsolescence(pp_feat, care_crew=care_crew)
+        pp_feat = annotate_pp_obsolescence(
+            pp_feat_all[pp_feat_all["Name"].isin(unlocked_pp_names)], care_crew=care_crew
+        )
+
+    # -----------------------------------------------------------------------
+    # Tech path suggestions (shared controls)
+    # -----------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("Tech path suggestions")
+
+    col_t1, col_t2, col_t3 = st.columns(3)
+    with col_t1:
+        st.number_input(
+            "Max project unlock steps from current tech",
+            min_value=0,
+            max_value=MAX_TECH_MAX_STEPS,
+            step=1,
+            value=int(st.session_state.get("tech_max_steps", DEFAULT_TECH_MAX_STEPS)),
+            key="tech_max_steps",
+        )
+    with col_t2:
+        st.number_input(
+            "Show top N suggestions",
+            min_value=1,
+            max_value=MAX_TECH_TOP_N,
+            step=1,
+            value=int(st.session_state.get("tech_top_n", DEFAULT_TECH_TOP_N)),
+            key="tech_top_n",
+        )
+    with col_t3:
+        st.checkbox(
+            "Hide suggestions with zero domination",
+            value=bool(st.session_state.get("tech_hide_zero", DEFAULT_TECH_HIDE_ZERO)),
+            key="tech_hide_zero",
+        )
+
+    tech_max_steps = int(st.session_state.get("tech_max_steps", DEFAULT_TECH_MAX_STEPS))
+    tech_top_n = int(st.session_state.get("tech_top_n", DEFAULT_TECH_TOP_N))
+    tech_hide_zero = bool(st.session_state.get("tech_hide_zero", DEFAULT_TECH_HIDE_ZERO))
+
+    completed_projects = infer_completed_projects_from_unlocks(
+        drive_raw,
+        pp_raw,
+        unlocked_drive_families,
+        unlocked_pp_names,
+    )
+    reachable_projects = compute_reachable_projects(
+        project_graph,
+        completed_projects,
+        tech_max_steps,
+    )
+
+    drive_suggestions = compute_drive_tech_suggestions(
+        drive_feat_all,
+        unlocked_drive_families,
+        reachable_projects,
+        care_backup,
+        ignore_intraclass,
+        tech_hide_zero,
+        tech_top_n,
+    )
+
+    pp_suggestions = compute_pp_tech_suggestions(
+        pp_feat_all,
+        unlocked_pp_names,
+        reachable_projects,
+        care_crew,
+        tech_hide_zero,
+        tech_top_n,
+    )
 
     # -----------------------------------------------------------------------
     # Tabs: Drives & Power Plants
@@ -2369,6 +2631,31 @@ def main():
                 f"Obsolete (dominated): **{obsolete_count}**"
             )
 
+        st.markdown("#### Tech path suggestions (drives)")
+        if drive_suggestions is None or drive_suggestions.empty:
+            st.info(
+                "No reachable drives within the selected step limit improve dominance metrics."
+            )
+        else:
+            drive_suggestion_cols = [
+                c
+                for c in [
+                    "Name",
+                    "FamilyName",
+                    "Domination Efficiency",
+                    "Dominates (count)",
+                    "Unlock Project",
+                    "Unlock Total Research Cost",
+                ]
+                if c in drive_suggestions.columns
+            ]
+            st.dataframe(
+                drive_suggestions.loc[:, drive_suggestion_cols],
+                use_container_width=True,
+                key="df_drive_tech_suggestions",
+            )
+
+        if drive_feat is not None:
             base_cols = ["Name", "Obsolete", "Dominates (count)", "Dominated By"]
             drive_property_cols = [c for c in drive_feat.columns if c not in base_cols]
 
@@ -2452,6 +2739,31 @@ def main():
                 f"Obsolete (dominated): **{obsolete_count}**"
             )
 
+        st.markdown("#### Tech path suggestions (power plants)")
+        if pp_suggestions is None or pp_suggestions.empty:
+            st.info(
+                "No reachable reactors within the selected step limit improve dominance metrics."
+            )
+        else:
+            pp_suggestion_cols = [
+                c
+                for c in [
+                    "Name",
+                    "Class",
+                    "Domination Efficiency",
+                    "Dominates (count)",
+                    "Unlock Project",
+                    "Unlock Total Research Cost",
+                ]
+                if c in pp_suggestions.columns
+            ]
+            st.dataframe(
+                pp_suggestions.loc[:, pp_suggestion_cols],
+                use_container_width=True,
+                key="df_pp_tech_suggestions",
+            )
+
+        if pp_feat is not None:
             base_cols = ["Name", "Obsolete", "Dominates (count)", "Dominated By"]
             pp_property_cols = [c for c in pp_feat.columns if c not in base_cols]
 
