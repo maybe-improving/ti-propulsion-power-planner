@@ -763,6 +763,120 @@ def compute_reachable_projects(
     return reachable
 
 
+def format_project_prereq_tree(
+    project_id: str,
+    project_graph: Dict[str, Dict[str, Any]],
+    completed_projects: set,
+    project_total_costs: Optional[Dict[str, float]] = None,
+    project_name_map: Optional[Dict[str, str]] = None,
+    max_nodes: int = 200,
+) -> str:
+    """Render a text tree of prerequisite research projects for a target project.
+
+    - Uses TI semantics for altPrereq*: prereqs[1:] are fixed AND prereqs and
+      at least one of {prereqs[0]} ∪ alt_prereqs must be satisfied.
+    - If multiple alternative prereqs exist, prefers an already-completed one;
+      otherwise picks the cheapest by total project cost when available.
+    - Non-project prerequisites (not present in project_graph) are omitted.
+    """
+
+    def display_name(pid: str) -> str:
+        if project_name_map and pid in project_name_map:
+            name = str(project_name_map.get(pid, "")).strip()
+            if name and name != pid:
+                return f"{name} ({pid})"
+        return pid
+
+    def pick_alt_option(options: List[str]) -> Optional[str]:
+        in_graph = [o for o in options if o in project_graph]
+        if not in_graph:
+            return None
+
+        completed = [o for o in in_graph if o in completed_projects]
+        if completed:
+            return completed[0]
+
+        if project_total_costs:
+            return min(in_graph, key=lambda o: float(project_total_costs.get(o, math.inf)))
+
+        return sorted(in_graph)[0]
+
+    lines: List[str] = []
+    visited: set = set()
+
+    def add_line(prefix: str, connector: str, pid: str, note: Optional[str] = None) -> None:
+        if len(lines) >= max_nodes:
+            return
+        status = " [DONE]" if pid in completed_projects else ""
+        extra = f" {note}" if note else ""
+        label = display_name(pid)
+        if prefix or connector:
+            lines.append(f"{prefix}{connector}{label}{status}{extra}")
+        else:
+            lines.append(f"{label}{status}{extra}")
+
+    def walk(pid: str, prefix: str, is_last: bool) -> None:
+        if len(lines) >= max_nodes:
+            return
+        if pid in visited:
+            add_line(prefix, "└─ ", pid, note="(cycle)")
+            return
+
+        visited.add(pid)
+        connector = "└─ " if prefix else ""
+        if prefix and not is_last:
+            connector = "├─ "
+        add_line(prefix, connector, pid)
+
+        node = project_graph.get(pid)
+        if not node:
+            return
+
+        prereqs = list(node.get("prereqs", []) or [])
+        alt_prereqs = list(node.get("alt_prereqs", []) or [])
+
+        children: List[str] = []
+        if alt_prereqs:
+            fixed = prereqs[1:] if prereqs else []
+            options: List[str] = []
+            if prereqs:
+                options.append(prereqs[0])
+            options.extend(alt_prereqs)
+            chosen = pick_alt_option(options)
+
+            children.extend([c for c in fixed if c in project_graph])
+            if chosen and chosen in project_graph:
+                children.append(chosen)
+        else:
+            children.extend([c for c in prereqs if c in project_graph])
+
+        # Stable display order.
+        children = sorted(dict.fromkeys(children))
+        if not children:
+            return
+
+        child_prefix = prefix
+        if prefix:
+            child_prefix = prefix + ("   " if is_last else "│  ")
+        else:
+            child_prefix = ""
+
+        for idx, child in enumerate(children):
+            last_child = idx == (len(children) - 1)
+            walk(child, child_prefix, last_child)
+
+    project_id = str(project_id or "").strip()
+    if not project_id:
+        return ""
+    if project_id not in project_graph:
+        return display_name(project_id)
+
+    walk(project_id, prefix="", is_last=True)
+    if len(lines) >= max_nodes:
+        lines.append("… (truncated)")
+    return "\n".join(lines)
+
+
 def find_backup_power_column(df: pd.DataFrame) -> Optional[str]:
     for col in df.columns:
         series = df[col]
