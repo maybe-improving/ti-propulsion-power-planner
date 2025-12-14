@@ -2859,32 +2859,6 @@ def main():
                 f"Obsolete (dominated): **{obsolete_count}**"
             )
 
-        st.markdown("#### Tech path suggestions (drives)")
-        if drive_suggestions is None or drive_suggestions.empty:
-            st.info(
-                "No reachable drives within the selected step limit improve dominance metrics."
-            )
-        else:
-            drive_suggestion_cols = [
-                c
-                for c in [
-                    "Name",
-                    "FamilyName",
-                    "New Domination Efficiency",
-                    "New Dominances",
-                    "Domination Efficiency",
-                    "Dominates (count)",
-                    "Unlock Project",
-                    "Unlock Total Research Cost",
-                ]
-                if c in drive_suggestions.columns
-            ]
-            st.dataframe(
-                drive_suggestions.loc[:, drive_suggestion_cols],
-                use_container_width=True,
-                key="df_drive_tech_suggestions",
-            )
-
         if drive_feat is not None:
             base_cols = ["Name", "Obsolete", "Dominates (count)", "Dominated By"]
             drive_property_cols = [c for c in drive_feat.columns if c not in base_cols]
@@ -2953,6 +2927,32 @@ def main():
                     key=df_key,
                 )
 
+        st.markdown("#### Tech path suggestions (drives)")
+        if drive_suggestions is None or drive_suggestions.empty:
+            st.info(
+                "No reachable drives within the selected step limit improve dominance metrics."
+            )
+        else:
+            drive_suggestion_cols = [
+                c
+                for c in [
+                    "Name",
+                    "FamilyName",
+                    "New Domination Efficiency",
+                    "New Dominances",
+                    "Domination Efficiency",
+                    "Dominates (count)",
+                    "Unlock Project",
+                    "Unlock Total Research Cost",
+                ]
+                if c in drive_suggestions.columns
+            ]
+            st.dataframe(
+                drive_suggestions.loc[:, drive_suggestion_cols],
+                use_container_width=True,
+                key="df_drive_tech_suggestions",
+            )
+
     with tab_pp_tab:
         st.header("Power Plant Obsolescence")
 
@@ -2967,32 +2967,6 @@ def main():
             st.write(
                 f"Unlocked power plants: **{total}**, "
                 f"Obsolete (dominated): **{obsolete_count}**"
-            )
-
-        st.markdown("#### Tech path suggestions (power plants)")
-        if pp_suggestions is None or pp_suggestions.empty:
-            st.info(
-                "No reachable reactors within the selected step limit improve dominance metrics."
-            )
-        else:
-            pp_suggestion_cols = [
-                c
-                for c in [
-                    "Name",
-                    "Class",
-                    "New Domination Efficiency",
-                    "New Dominances",
-                    "Domination Efficiency",
-                    "Dominates (count)",
-                    "Unlock Project",
-                    "Unlock Total Research Cost",
-                ]
-                if c in pp_suggestions.columns
-            ]
-            st.dataframe(
-                pp_suggestions.loc[:, pp_suggestion_cols],
-                use_container_width=True,
-                key="df_pp_tech_suggestions",
             )
 
         if pp_feat is not None:
@@ -3058,6 +3032,32 @@ def main():
                     use_container_width=True,
                     key=df_key_pp,
                 )
+
+        st.markdown("#### Tech path suggestions (power plants)")
+        if pp_suggestions is None or pp_suggestions.empty:
+            st.info(
+                "No reachable reactors within the selected step limit improve dominance metrics."
+            )
+        else:
+            pp_suggestion_cols = [
+                c
+                for c in [
+                    "Name",
+                    "Class",
+                    "New Domination Efficiency",
+                    "New Dominances",
+                    "Domination Efficiency",
+                    "Dominates (count)",
+                    "Unlock Project",
+                    "Unlock Total Research Cost",
+                ]
+                if c in pp_suggestions.columns
+            ]
+            st.dataframe(
+                pp_suggestions.loc[:, pp_suggestion_cols],
+                use_container_width=True,
+                key="df_pp_tech_suggestions",
+            )
 
     # -----------------------------------------------------------------------
     # Combined combos section
