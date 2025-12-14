@@ -1,3 +1,0 @@
-[server]
-# For local development only — disable XSRF token checks to avoid the error.
-enableXsrfProtection = false
