@@ -1237,6 +1237,69 @@ def build_pp_features(df: pd.DataFrame, project_total_costs: Dict[str, float]) -
 
 # ---------------------------------
 
+
+def dominates_drive(
+    a: pd.Series,
+    b: pd.Series,
+    care_backup: bool,
+    ignore_intraclass: bool,
+    class_col: str = "FamilyName",
+) -> bool:
+    """
+    Return True if drive 'a' strictly dominates drive 'b' under the current
+    obsolescence rules:
+      - Higher or equal thrust, exhaust velocity, and power use efficiency
+      - Lower or equal drive mass
+      - If care_backup is True, then backup power is treated as a dimension
+      - A drive using scarce propellant can *never* dominate one that does not
+    """
+    # Optionally prevent intra-family/class dominance
+    if ignore_intraclass and (class_col in a.index) and (class_col in b.index):
+        if a[class_col] == b[class_col]:
+            return False
+
+    # Scarce propellant rule: a drive that uses scarce fuel cannot dominate
+    # a drive that does not
+    if a["Uses Scarce Propellant"] and not b["Uses Scarce Propellant"]:
+        return False
+
+    ge_dims = [
+        a["Thrust (N)"] >= b["Thrust (N)"],
+        a["Exhaust Velocity (km/s)"] >= b["Exhaust Velocity (km/s)"],
+        a["Power Use Efficiency"] >= b["Power Use Efficiency"],
+    ]
+    le_dims = [
+        a["Drive Mass (tons)"] <= b["Drive Mass (tons)"],
+    ]
+
+    if care_backup:
+        # If we care about backup power, a drive that lacks idle backup
+        # cannot dominate one that has it.
+        if (not a["Has Idle Backup"]) and b["Has Idle Backup"]:
+            return False
+        ge_dims.append(int(a["Has Idle Backup"]) >= int(b["Has Idle Backup"]))
+
+    if not all(ge_dims) or not all(le_dims):
+        return False
+
+    strict_better = (
+        (a["Thrust (N)"] > b["Thrust (N)"])
+        or (a["Exhaust Velocity (km/s)"] > b["Exhaust Velocity (km/s)"])
+        or (a["Power Use Efficiency"] > b["Power Use Efficiency"])
+        or (a["Drive Mass (tons)"] < b["Drive Mass (tons)"])
+    )
+
+    if care_backup and a["Has Idle Backup"] and not b["Has Idle Backup"]:
+        strict_better = True
+
+    # If 'a' uses non-scarce fuel while 'b' uses scarce fuel, that is also
+    # treated as a strict improvement.
+    if (not a["Uses Scarce Propellant"]) and b["Uses Scarce Propellant"]:
+        strict_better = True
+
+    return strict_better
+
+
 def annotate_drive_obsolescence(
     feat_df: pd.DataFrame,
     care_backup: bool,
