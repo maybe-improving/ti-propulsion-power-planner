@@ -2546,7 +2546,10 @@ def main():
                 st.markdown("**Drive columns**")
                 visible_props = []
                 for c in drive_property_cols:
-                    key = f"drive_col_{c}"
+                    # Use a stable, safe widget key derived from the column name
+                    # to avoid collisions or mis-wiring when column labels change.
+                    safe_key = hashlib.md5(c.encode("utf-8")).hexdigest()
+                    key = f"drive_col_{safe_key}"
                     default_val = st.session_state.drive_visible_props.get(
                         c, c in default_drive_props_selected
                     )
@@ -2616,7 +2619,10 @@ def main():
                 st.markdown("**Reactor columns**")
                 visible_props_pp = []
                 for c in pp_property_cols:
-                    key = f"pp_col_{c}"
+                    # Use a stable, safe widget key derived from the column name
+                    # to avoid collisions or mis-wiring when column labels change.
+                    safe_key = hashlib.md5(c.encode("utf-8")).hexdigest()
+                    key = f"pp_col_{safe_key}"
                     default_val = st.session_state.pp_visible_props.get(c, True)
                     val = st.checkbox(c, value=default_val, key=key)
                     st.session_state.pp_visible_props[c] = val
