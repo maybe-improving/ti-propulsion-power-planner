@@ -8,7 +8,7 @@ A Streamlit-based analysis tool for **Terra Invicta** that helps you reason abou
 - Whether specific **mission targets** (Δv + acceleration) are feasible
 
 > Not affiliated with Hooded Horse, Pavonis Interactive, or the Terra Invicta team.  
-> This is a fan-made analysis tool built on data exported from the Terra Invicta wiki.
+> This is a fan-made analysis tool.
 
 ---
 
