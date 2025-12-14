@@ -1,2 +1,3 @@
 .github/
 .streamlit/
+__pycache__/
