@@ -1667,7 +1667,13 @@ def compute_drive_tech_suggestions(
 
     top_n = max(1, int(top_n))
 
-    return _sort_suggestions(annotated).head(top_n)
+    ranked = _sort_suggestions(annotated)
+
+    # Only show the best candidate per drive family (x1..x6 variants share FamilyName).
+    if "FamilyName" in ranked.columns:
+        ranked = ranked.drop_duplicates(subset=["FamilyName"], keep="first")
+
+    return ranked.head(top_n)
 
 
 def compute_pp_tech_suggestions(
@@ -1824,7 +1830,7 @@ def build_valid_drive_pp_combos(
                     "Drive Thrust (N)": thrust,
                     "Drive Combat Thrust Multiplier": thrust_cap,
                     "Drive EV (km/s)": ev_kps,
-                    "Drive Power (GW)": drive_power,
+                    "Drive Required Input Power (GW)": drive_power,
                     "Drive Mass (tons)": drive_mass,
                     "Drive Expensive Fuel Score": fuel_score,
                     "Requires Power Plant Class": d.get("Required Power Plant", ""),
@@ -2940,7 +2946,7 @@ def main():
 
                 st.dataframe(
                     df_sorted,
-                    use_container_width=True,
+                    width="stretch",
                     key=df_key,
                 )
 
@@ -2966,7 +2972,7 @@ def main():
             ]
             st.dataframe(
                 drive_suggestions.loc[:, drive_suggestion_cols],
-                use_container_width=True,
+                width="stretch",
                 key="df_drive_tech_suggestions",
             )
 
@@ -3046,7 +3052,7 @@ def main():
 
                 st.dataframe(
                     df_sorted_pp,
-                    use_container_width=True,
+                    width="stretch",
                     key=df_key_pp,
                 )
 
@@ -3072,7 +3078,7 @@ def main():
             ]
             st.dataframe(
                 pp_suggestions.loc[:, pp_suggestion_cols],
-                use_container_width=True,
+                width="stretch",
                 key="df_pp_tech_suggestions",
             )
 
@@ -3198,7 +3204,7 @@ def main():
 
                 st.dataframe(
                     df_combo_sorted,
-                    use_container_width=True,
+                    width="stretch",
                     key=df_key_combo,
                 )
 
@@ -3296,7 +3302,7 @@ def main():
                             )
                             .interactive()
                         )
-                        st.altair_chart(chart, use_container_width=True)
+                        st.altair_chart(chart, width="stretch")
 
             # ------------------- Mission Feasibility -------------------
             st.markdown("---")
@@ -3394,7 +3400,7 @@ def main():
 
                         st.dataframe(
                             feas_display,
-                            use_container_width=True,
+                            width="stretch",
                             key=df_key_feas,
                         )
 
