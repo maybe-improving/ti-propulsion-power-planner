@@ -1410,30 +1410,27 @@ def compute_drive_tech_suggestions(
     proj_series = drive_feat_all["Unlock Project"].fillna("").astype(str)
     reachable_mask = proj_series.eq("") | proj_series.isin(reachable_projects)
     unlocked_mask = drive_feat_all["FamilyName"].isin(unlocked_drive_families)
-    context_mask = reachable_mask | unlocked_mask
 
-    context_df = drive_feat_all[context_mask].copy()
+    candidates = drive_feat_all[reachable_mask & ~unlocked_mask].copy()
+    if candidates.empty:
+        return pd.DataFrame()
+
     annotated = annotate_drive_obsolescence(
-        context_df,
+        candidates,
         care_backup=care_backup,
         ignore_intraclass=ignore_intraclass,
         class_col="FamilyName",
     )
 
-    candidates = annotated[
-        (~annotated["FamilyName"].isin(unlocked_drive_families))
-        & (annotated["Unlock Project"].fillna("").astype(str).eq("") | annotated["Unlock Project"].isin(reachable_projects))
-    ].copy()
+    if hide_zero and "Dominates (count)" in annotated.columns:
+        annotated = annotated[annotated["Dominates (count)"] > 0]
 
-    if hide_zero and "Dominates (count)" in candidates.columns:
-        candidates = candidates[candidates["Dominates (count)"] > 0]
-
-    if "Unlock Total Research Cost" in candidates.columns:
-        candidates = candidates[candidates["Unlock Total Research Cost"] >= 0]
+    if "Unlock Total Research Cost" in annotated.columns:
+        annotated = annotated[annotated["Unlock Total Research Cost"] >= 0]
 
     top_n = max(1, int(top_n))
 
-    return _sort_suggestions(candidates).head(top_n)
+    return _sort_suggestions(annotated).head(top_n)
 
 
 def compute_pp_tech_suggestions(
@@ -1450,25 +1447,22 @@ def compute_pp_tech_suggestions(
     proj_series = pp_feat_all["Unlock Project"].fillna("").astype(str)
     reachable_mask = proj_series.eq("") | proj_series.isin(reachable_projects)
     unlocked_mask = pp_feat_all["Name"].isin(unlocked_pp_names)
-    context_mask = reachable_mask | unlocked_mask
 
-    context_df = pp_feat_all[context_mask].copy()
-    annotated = annotate_pp_obsolescence(context_df, care_crew=care_crew)
+    candidates = pp_feat_all[reachable_mask & ~unlocked_mask].copy()
+    if candidates.empty:
+        return pd.DataFrame()
 
-    candidates = annotated[
-        (~annotated["Name"].isin(unlocked_pp_names))
-        & (annotated["Unlock Project"].fillna("").astype(str).eq("") | annotated["Unlock Project"].isin(reachable_projects))
-    ].copy()
+    annotated = annotate_pp_obsolescence(candidates, care_crew=care_crew)
 
-    if hide_zero and "Dominates (count)" in candidates.columns:
-        candidates = candidates[candidates["Dominates (count)"] > 0]
+    if hide_zero and "Dominates (count)" in annotated.columns:
+        annotated = annotated[annotated["Dominates (count)"] > 0]
 
-    if "Unlock Total Research Cost" in candidates.columns:
-        candidates = candidates[candidates["Unlock Total Research Cost"] >= 0]
+    if "Unlock Total Research Cost" in annotated.columns:
+        annotated = annotated[annotated["Unlock Total Research Cost"] >= 0]
 
     top_n = max(1, int(top_n))
 
-    return _sort_suggestions(candidates).head(top_n)
+    return _sort_suggestions(annotated).head(top_n)
 
 
 # ---------------------------------------------------------------------------
