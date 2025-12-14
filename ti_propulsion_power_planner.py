@@ -205,7 +205,7 @@ HELP_HTML = """<!DOCTYPE html>
   <p>Search locations (in order):</p>
   <ol>
     <li>Environment variable: <code>TI_TEMPLATES_DIR</code></li>
-    <li>Default Steam path (Windows): <code>C:\Program Files (x86)\Steam\steamapps\common\Terra Invicta\TerraInvicta_Data\StreamingAssets\Templates</code></li>
+        <li>Default Steam path (Windows): <code>C:\\Program Files (x86)\\Steam\\steamapps\\common\\Terra Invicta\\TerraInvicta_Data\\StreamingAssets\\Templates</code></li>
     <li>Current working directory (for manual copies)</li>
   </ol>
   <div class="tip">
@@ -570,13 +570,17 @@ def build_project_graph(project_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """
     Build a dependency graph of projects from TIProjectTemplate.
 
-    Each node is keyed by dataName and has:
-      - cost: researchCost
-      - prereqs: list of prerequisite project dataNames
+        Each node is keyed by dataName and has:
+            - cost: researchCost
+            - prereqs: list of prerequisite project dataNames (AND)
+            - alt_prereqs: list of alternative prerequisites (see below)
 
-    The main prerequisite field is 'prereqs' (a list).
-    In addition, any fields starting with 'altPrereq' that contain
-    a non-empty string are treated as alternative prerequisites.
+        Terra Invicta project templates sometimes include fields like altPrereq0,
+        altPrereq1, ... which represent alternative ways to satisfy (typically) the
+        *first* prerequisite in the prereqs list. In those cases, the unlock rule is:
+
+            - all prereqs[1:] must be satisfied, AND
+            - at least one of {prereqs[0]} ∪ alt_prereqs must be satisfied
     """
     graph: Dict[str, Dict[str, Any]] = {}
 
@@ -588,6 +592,7 @@ def build_project_graph(project_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         cost = float(row.get("researchCost", 0.0))
 
         prereqs: List[str] = []
+        alt_prereqs: List[str] = []
 
         raw_prereqs = row.get("prereqs")
         if isinstance(raw_prereqs, list):
@@ -611,13 +616,15 @@ def build_project_graph(project_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
             if isinstance(val, str):
                 s = val.strip()
                 if s:
-                    prereqs.append(s)
+                    alt_prereqs.append(s)
 
         prereqs = list({p for p in prereqs if p})
+        alt_prereqs = list({p for p in alt_prereqs if p})
 
         graph[pid] = {
             "cost": cost,
             "prereqs": prereqs,
+            "alt_prereqs": alt_prereqs,
         }
 
     return graph
@@ -645,8 +652,31 @@ def compute_total_project_costs(project_graph: Dict[str, Dict[str, Any]]) -> Dic
         new_visiting = set(visiting)
         new_visiting.add(pid)
 
-        for pre in node.get("prereqs", []):
-            total += dfs(pre, new_visiting)
+        prereqs = list(node.get("prereqs", []) or [])
+        alt_prereqs = list(node.get("alt_prereqs", []) or [])
+
+        # Base case: no prerequisites
+        if not prereqs and not alt_prereqs:
+            memo[pid] = total
+            return total
+
+        # If there are alternative prerequisites, treat them as alternatives to
+        # satisfying the first prereq.
+        if alt_prereqs:
+            fixed = prereqs[1:] if prereqs else []
+            options = []
+            if prereqs:
+                options.append(prereqs[0])
+            options.extend(alt_prereqs)
+
+            for pre in fixed:
+                total += dfs(pre, new_visiting)
+
+            if options:
+                total += min(dfs(opt, new_visiting) for opt in options)
+        else:
+            for pre in prereqs:
+                total += dfs(pre, new_visiting)
 
         memo[pid] = total
         return total
@@ -692,14 +722,39 @@ def compute_reachable_projects(
     reachable = set(completed_projects)
     steps = max(0, int(max_steps))
 
+    def prereq_satisfied(pr: str) -> bool:
+        # Some prerequisites in TIProjectTemplate are *global tech* IDs (e.g. "ArcLasers")
+        # rather than projects listed in TIProjectTemplate. Since this app doesn't track
+        # global tech unlocks, treat non-project prerequisites as already satisfied so
+        # reachability isn't artificially blocked.
+        return (pr in reachable) or (pr not in project_graph)
+
     for _ in range(steps):
         newly: set = set()
         for pid, node in project_graph.items():
             if pid in reachable:
                 continue
-            prereqs = node.get("prereqs", [])
-            if all(pre in reachable for pre in prereqs):
+            prereqs = list(node.get("prereqs", []) or [])
+            alt_prereqs = list(node.get("alt_prereqs", []) or [])
+
+            if not prereqs and not alt_prereqs:
                 newly.add(pid)
+                continue
+
+            if alt_prereqs:
+                fixed = prereqs[1:] if prereqs else []
+                options = []
+                if prereqs:
+                    options.append(prereqs[0])
+                options.extend(alt_prereqs)
+
+                if all(prereq_satisfied(pre) for pre in fixed) and any(
+                    prereq_satisfied(opt) for opt in options
+                ):
+                    newly.add(pid)
+            else:
+                if all(prereq_satisfied(pre) for pre in prereqs):
+                    newly.add(pid)
 
         if not newly:
             break
