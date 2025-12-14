@@ -2307,6 +2307,17 @@ def main():
 
         project_graph = build_project_graph(project_raw)
         project_total_costs = compute_total_project_costs(project_graph)
+        project_name_map = {}
+        if (project_raw is not None) and (not project_raw.empty):
+            if ("dataName" in project_raw.columns) and (
+                "friendlyName" in project_raw.columns
+            ):
+                project_name_map = dict(
+                    zip(
+                        project_raw["dataName"].astype(str).fillna(""),
+                        project_raw["friendlyName"].astype(str).fillna(""),
+                    )
+                )
     except Exception as e:
         st.error(
             "Failed to load Terra Invicta data from the game JSON files.\n\n"
@@ -3090,6 +3101,25 @@ def main():
                 key="df_drive_tech_suggestions",
             )
 
+            top_drive_name = str(drive_suggestions.iloc[0].get("Name", "")).strip()
+            top_drive_unlock = str(
+                drive_suggestions.iloc[0].get("Unlock Project", "")
+            ).strip()
+            if top_drive_unlock:
+                st.markdown("##### Required research for top suggestion")
+                if top_drive_name:
+                    st.caption(f"Top suggestion: {top_drive_name}")
+                st.code(
+                    format_project_prereq_tree(
+                        top_drive_unlock,
+                        project_graph,
+                        completed_projects,
+                        project_total_costs=project_total_costs,
+                        project_name_map=project_name_map,
+                    ),
+                    language="text",
+                )
+
     with tab_pp_tab:
         st.header("Power Plant Obsolescence")
 
@@ -3195,6 +3225,23 @@ def main():
                 width="stretch",
                 key="df_pp_tech_suggestions",
             )
+
+            top_pp_name = str(pp_suggestions.iloc[0].get("Name", "")).strip()
+            top_pp_unlock = str(pp_suggestions.iloc[0].get("Unlock Project", "")).strip()
+            if top_pp_unlock:
+                st.markdown("##### Required research for top suggestion")
+                if top_pp_name:
+                    st.caption(f"Top suggestion: {top_pp_name}")
+                st.code(
+                    format_project_prereq_tree(
+                        top_pp_unlock,
+                        project_graph,
+                        completed_projects,
+                        project_total_costs=project_total_costs,
+                        project_name_map=project_name_map,
+                    ),
+                    language="text",
+                )
 
     # -----------------------------------------------------------------------
     # Combined combos section
