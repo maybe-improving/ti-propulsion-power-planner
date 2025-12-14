@@ -278,8 +278,9 @@ HELP_HTML = """<!DOCTYPE html>
     <li>Fuel scarcity (non-scarce preferred)</li>
     <li>Backup power (if enabled; backup preferred)</li>
   </ul>
-  <p>The <strong>Dominates (count)</strong> column shows how many other drives each drive dominates. 
-  Use checkboxes on the left to show/hide columns.</p>
+    <p>The <strong>Dominates (count)</strong> column shows how many other drives each drive dominates. 
+    Use checkboxes on the left to show/hide columns.</p>
+    <p><strong>Domination Efficiency</strong> = (Dominates count × 1000) / Unlock Total Research Cost — higher is better.</p>
 
   <h3>Reactor Obsolescence (⚡ Power Plants Tab)</h3>
   <p>Reactors are marked obsolete when dominated on all of:</p>
@@ -290,7 +291,8 @@ HELP_HTML = """<!DOCTYPE html>
     <li>Specific Power (tons/GW) — lower is better</li>
     <li>Crew size — lower is better (if enabled)</li>
   </ul>
-  <p>The <strong>Dominates (count)</strong> column shows domination count. Column visibility is customizable.</p>
+    <p>The <strong>Dominates (count)</strong> column shows domination count. Column visibility is customizable.</p>
+    <p><strong>Domination Efficiency</strong> = (Dominates count × 1000) / Unlock Total Research Cost — higher is better.</p>
 
   <h2>Valid Combinations</h2>
   <p>Below the tabs, view all valid (drive, reactor) pairs where:</p>
@@ -1196,18 +1198,15 @@ def annotate_drive_obsolescence(
     out["Dominates (count)"] = dominates_count
     out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
 
-    # Domination Efficiency = Unlock Total Research Cost / Dominates (count)
+    # Domination Efficiency = (Dominates (count) * 1000) / Unlock Total Research Cost (higher is better)
     if "Unlock Total Research Cost" in feat_df.columns:
         unlock_costs = feat_df["Unlock Total Research Cost"].tolist()
         dom_eff: List[Optional[float]] = []
         for idx in range(n):
             count = dominates_count[idx]
             cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
-            if count > 0 and cost is not None:
-                try:
-                    dom_eff.append(float(cost) / float(count))
-                except ZeroDivisionError:
-                    dom_eff.append(None)
+            if count > 0 and cost not in (None, 0, 0.0):
+                dom_eff.append((float(count) * 1000.0) / float(cost))
             else:
                 dom_eff.append(None)
         out["Domination Efficiency"] = dom_eff
@@ -1268,18 +1267,15 @@ def annotate_pp_obsolescence(feat_df: pd.DataFrame, care_crew: bool) -> pd.DataF
     out["Dominates (count)"] = dominates_count
     out["Dominated By"] = [", ".join(lst) if lst else "" for lst in dominated_by]
 
-    # Domination Efficiency = Unlock Total Research Cost / Dominates (count)
+    # Domination Efficiency = (Dominates (count) * 1000) / Unlock Total Research Cost (higher is better)
     if "Unlock Total Research Cost" in feat_df.columns:
         unlock_costs = feat_df["Unlock Total Research Cost"].tolist()
         dom_eff: List[Optional[float]] = []
         for idx in range(n):
             count = dominates_count[idx]
             cost = unlock_costs[idx] if idx < len(unlock_costs) else 0.0
-            if count > 0 and cost is not None:
-                try:
-                    dom_eff.append(float(cost) / float(count))
-                except ZeroDivisionError:
-                    dom_eff.append(None)
+            if count > 0 and cost not in (None, 0, 0.0):
+                dom_eff.append((float(count) * 1000.0) / float(cost))
             else:
                 dom_eff.append(None)
         out["Domination Efficiency"] = dom_eff
@@ -2392,6 +2388,9 @@ def main():
 
             with left_col:
                 st.markdown("**Drive columns**")
+                st.caption(
+                    "Domination Efficiency = (Dominates count × 1000) / Unlock Total Research Cost — higher is better."
+                )
                 visible_props = []
                 for c in drive_property_cols:
                     # Use a stable, safe widget key derived from the column name
@@ -2465,6 +2464,9 @@ def main():
 
             with left_col:
                 st.markdown("**Reactor columns**")
+                st.caption(
+                    "Domination Efficiency = (Dominates count × 1000) / Unlock Total Research Cost — higher is better."
+                )
                 visible_props_pp = []
                 for c in pp_property_cols:
                     # Use a stable, safe widget key derived from the column name
